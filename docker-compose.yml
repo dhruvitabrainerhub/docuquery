@@ -1,0 +1,56 @@
+version : "3.9"
+
+services : 
+
+  web :
+    build: .
+    container_name: docuquery_app
+    working_dir: /app/DocuQuery
+    env_file:
+      - .env
+      
+    command: >
+      sh -c "
+      python manage.py migrate &&
+      python manage.py runserver 0.0.0.0:8000
+      "
+
+    volumes:
+      - .:/app
+    
+    ports: 
+      - "8000:8000"
+
+    depends_on:
+      - db
+
+    environment:
+      DB_NAME : docuquery
+      DB_USER : postgres
+      DB_PASSWORD : 1234
+      DB_HOST : db
+      DB_PORT : 5432
+
+  db:
+    image: postgres:16
+
+    container_name: docuquery_db
+
+    restart: always
+    
+    environment:
+      POSTGRES_DB: docuquery
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD:  1234
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      
+volumes:
+  postgres_data:
+
+
+    

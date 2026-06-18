@@ -1,0 +1,20 @@
+Django
+Djangorestframework
+# django-sql-explorer
+
+python-dotenv
+
+langchain-text-splitters
+langchain==0.3.26
+langchain-community
+langchain-openai
+langchain-chroma
+langchain-huggingface
+
+chromadb
+
+sentence-transformers
+
+pypdf
+
+psycopg2-binary
