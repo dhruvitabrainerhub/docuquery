@@ -15,6 +15,9 @@ class DocumentAdmin(admin.ModelAdmin):
         'upload_at',
         'processed'
     ]
+    list_filter = ['processed']
+    search_fields = ['title']
+
 
 class ChatMessageAdmin(admin.ModelAdmin):
     list_display = [
@@ -23,6 +26,7 @@ class ChatMessageAdmin(admin.ModelAdmin):
         'role',
         'created_at'
     ]
+    list_filter = ['role']
 
 class ChatSessionAdmin(admin.ModelAdmin):
     list_display = [

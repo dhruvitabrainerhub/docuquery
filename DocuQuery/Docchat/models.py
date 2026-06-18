@@ -1,4 +1,7 @@
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
+import uuid
 
 # Create your models here.
 class Documents(models.Model):
@@ -14,12 +17,20 @@ class Documents(models.Model):
         return self.title
 
 #Chat session model
+# class ChatSession(models.Model):
+#     title = models.CharField(max_length=255)
+#     created_at = models.DateTimeField(auto_now_add = True)
+
+#     def __str__(self):
+#         return f"Session{self.id}"
+
 class ChatSession(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255)
-    created_at = models.DateTimeField(auto_now_add = True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"Session{self.id}"
+        return f"Session {self.id}"
 
 #Chat Message Model
 class ChatMessage(models.Model):
@@ -31,6 +42,17 @@ class ChatMessage(models.Model):
 
     role = models.CharField(max_length = 20)    
 
-    context = models.TextField()
+    content = models.TextField()
 
     created_at = models.DateTimeField(auto_now_add = True)
+
+
+@receiver(post_delete, sender=Documents)
+def delete_document_vectors(sender, instance, **kwargs):
+    from .services.embeddings import vector_db
+
+    results = vector_db.get(where={'document_id': instance.id})
+
+    if results and results.get('ids'):
+        vector_db.delete(ids=results['ids'])
+

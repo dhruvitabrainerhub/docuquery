@@ -20,7 +20,7 @@ urlpatterns = [
         CreateSessionView.as_view()
     ),
     path(
-        'chat/<int:session_id>/',
+        'chat/<uuid:session_id>/',
         ChatView.as_view()
     ),
 ]
