@@ -8,6 +8,6 @@ embedding_model = HuggingFaceEmbeddings(
 
 vector_db = Chroma(
     collection_name = "documents",
-    persist_directory = settings.CHROMA_DB_PATH,
+    persist_directory = settings.CHROMA_DB_PATH, 
     embedding_function = embedding_model
 )

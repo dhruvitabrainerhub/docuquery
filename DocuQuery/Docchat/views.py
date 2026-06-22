@@ -16,7 +16,7 @@ from .services.parser import extract_text
 from .services.rag_pipeline import llm
 from langchain.retrievers.multi_query import MultiQueryRetriever
 
-class UploadDocumentView(generics.CreateAPIView):
+class UploadDocumentView(generics.CreateAPIView): #DRF handle 
     queryset = Documents.objects.all()
     serializer_class = DocumentUploadSerializer
     parser_classes = [MultiPartParser, FormParser]
@@ -99,13 +99,6 @@ class ChatView(APIView):
 
         docs = retriever.invoke(question)
 
-        # # deduplicate docs by content
-        # seen = set()
-        # unique_docs = []
-        # for doc in docs:
-        #     if doc.page_content not in seen:
-        #         seen.add(doc.page_content)
-        #         unique_docs.append(doc)
 
         # deduplicate: keep only 3 chunks per source file to prevent
         # one document from dominating all retrieval slots
@@ -128,7 +121,7 @@ class ChatView(APIView):
        
         context = '\n\n'.join(
             f"[Page {doc.metadata.get('page')}]\n{doc.page_content}"
-            for doc in docs
+            for doc in unique_docs
         )
 
         prompt = f"""You are a helpful RAG assistant. Answer only from the document context below.
@@ -169,7 +162,7 @@ PAGES_USED:3,7"""
         ChatMessage.objects.create(session=session, role='assistant', content=raw_answer)
 
         source_map = defaultdict(set)
-        for doc in docs:
+        for doc in unique_docs:
             if doc.metadata.get('page') in used_pages:
                 source_map[doc.metadata.get('source')].add(doc.metadata.get('page'))
 
