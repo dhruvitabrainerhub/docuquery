@@ -11,22 +11,40 @@ from rest_framework.views import APIView
 from .models import Documents, ChatSession, ChatMessage
 from .serializers import DocumentUploadSerializer
 from .services.chunker import create
-from .services.embeddings import vector_db
+from .services.embeddings import get_vector_db
 from .services.parser import extract_text
 from .services.rag_pipeline import llm
 from langchain.retrievers.multi_query import MultiQueryRetriever
+from langchain_core.messages import HumanMessage, SystemMessage
+from celery.result import AsyncResult
+from .tasks import process_document_task
+
 
 class UploadDocumentView(generics.CreateAPIView): #DRF handle 
     queryset = Documents.objects.all()
     serializer_class = DocumentUploadSerializer
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser]  # signal handles task dispatch automatically on save()
+
+    # def perform_create(self, serializer):
+    #     document = serializer.save()
+    #     task = process_document_task.delay(document.id)
+    #     document.task_id = task.id
+    #     document.status = 'PENDING'
+    #     document.save(update_fields=['task_id','status'])
+
+    # def post(self, request, *args, **kwargs):
+    #     print(request.data)
+    #     print(request.FILES)
+
+    #     return super().post(request, *args, **kwargs)
 
 
 class ProcessDocumentView(APIView):
     def post(self, request, document_id):
+        vector_db = get_vector_db()
         document = get_object_or_404(Documents, id=document_id)
 
-        force = request.data.get('force', False)
+        force = request.data.get('force') in [True, 'true', 'True', '1']
         if document.processed and not force:
             return Response(
                 {'error': 'Already processed. Send force=true to re-process.'},
@@ -63,9 +81,9 @@ class ProcessDocumentView(APIView):
             return Response({'error': 'No text chunks created from document.'}, status=status.HTTP_400_BAD_REQUEST)
 
         vector_db.add_texts(texts=all_chunks, metadatas=all_metadatas)
-
         document.processed = True
-        document.save()
+        document.status = Documents.Status.DONE
+        document.save(update_fields=['processed', 'status'])
 
         return Response({'message': 'Document processed successfully.'})
 
@@ -78,6 +96,7 @@ class CreateSessionView(APIView):
 
 class ChatView(APIView):
     def post(self, request, session_id):
+        vector_db = get_vector_db()
         question = request.data.get('question', '').strip()
         if not question:
             return Response({'error': 'question is required.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -91,14 +110,12 @@ class ChatView(APIView):
 
         #multiqueryretriever splits question into sub-queries
         #so multi-topic qestions all get relevant chunks
-        base_retriever = vector_db.as_retriever(search_kwargs={'k':8})
+        base_retriever = vector_db.as_retriever(search_kwargs={'k':20})
         retriever = MultiQueryRetriever.from_llm(
             retriever = base_retriever,
             llm = llm
         )
-
         docs = retriever.invoke(question)
-
 
         # deduplicate: keep only 3 chunks per source file to prevent
         # one document from dominating all retrieval slots
@@ -112,7 +129,7 @@ class ChatView(APIView):
 
             if content in seen_content:
                 continue
-            if source_count[source] >= 3:
+            if source_count[source] >= 5:
                 continue
 
             seen_content.add(content)
@@ -124,28 +141,55 @@ class ChatView(APIView):
             for doc in unique_docs
         )
 
-        prompt = f"""You are a helpful RAG assistant. Answer only from the document context below.
+        prompt = f"""You are a helpful RAG assistant. You ONLY answer from the document context provided below.
 
-Previous conversation:
-{history}
+        Previous conversation:
+        {history}
 
-Document context:
-{context}
+        Document context:
+        {context}
 
-Question: {question}
+        Question: {question}
+        Rules:
+        1. Use document context first.
+        2. Use conversation history to resolve references (it, they, that event, etc.).
+        3. If the answer is not in context, say: "I couldn't find that information."
+        4. Do not mention page numbers inside the answer text itself.
+        5. Only list pages in PAGES_USED that you actually relied on.
+        6. End your response with exactly:
+        PAGES_USED:comma,separated,page,numbers
 
-Rules:
-1. Use document context first.
-2. Use conversation history to resolve references (it, they, that event, etc.).
-3. If the answer is not in context, say: "I couldn't find that information."
-4. Do not mention page numbers inside the answer text itself.
-5. Only list pages in PAGES_USED that you actually relied on.
-6. End your response with exactly:
-PAGES_USED:comma,separated,page,numbers
+        Response format:
+        Write your answer here.
+        PAGES_USED:comma,separated,page,numbers
 
-Example:
-The answer goes here.
-PAGES_USED:3,7"""
+        If no answer found:
+        I couldn't find that information.
+        PAGES_USED:"""
+#         messages = [
+#             SystemMessage(content="""You are a helpful document-based assistant.
+# RULES:
+# - Answer ONLY using the document context provided.
+# - If context has relevant information, answer from it even if wording is different.
+# - If context truly has NO related information at all, respond EXACTLY: "I couldn't find that information in the provided documents."
+# - NEVER use your own knowledge to fill gaps.
+# - NEVER hallucinate."""),
+#             HumanMessage(content=f"""Document context:
+# {context}
+
+# Previous conversation:
+# {history}
+
+# Question: {question}
+
+# If answer exists in context:
+# Your answer here.
+# PAGES_USED:3,7
+
+# If answer NOT in context:
+# I couldn't find that information in the provided documents.
+# PAGES_USED:""")
+#]
 
         answer = llm.invoke(prompt)
         raw_answer = answer.content
@@ -169,3 +213,27 @@ PAGES_USED:3,7"""
         sources = [{'file': f, 'pages': sorted(p)} for f, p in source_map.items()]
 
         return Response({'answer': answer_text, 'sources': sources})
+
+class TaskStatusView(APIView):
+    def get(self, request, document_id):
+        document = get_object_or_404(Documents,id=document_id)
+
+        if not document.task_id:
+            return Response({
+                'document_id':document.id,
+                'task_id':None,
+                'document_status':document.status,
+                'celery_status':None,
+                'processed':document.processed,
+            })
+
+        task = AsyncResult(document.task_id)
+        return Response(
+            {
+                "document_id": document.id,
+                "task_id": document.task_id,
+                "document_status": document.status,
+                "celery_status": task.status,
+                "processed": document.processed,
+            }
+        )

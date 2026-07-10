@@ -40,8 +40,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'Docchat',
+    'Docchat.apps.DocchatConfig',
     'rest_framework',
+    
     # 'explorer',
 ]
 
@@ -136,3 +137,23 @@ MEDIA_ROOT = BASE_DIR/ 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 CHROMA_DB_PATH = str(BASE_DIR / 'chroma_db')
+
+#celery configuration
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://redis:6379/0')
+CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND','redis://redis:6379/0')
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = "UTC"
+CELERY_TASK_TRACK_STARTED = True
+CELERY_SEND_EVENTS = True
+
+
+#Beat : nightly re-embedding at 02:00 UTC
+from celery.schedules import crontab
+CELERY_BEAT_SCHEDULE = {
+    'nightly-reindex': {
+        'task':'Docchat.tasks.reindex_all_documents',
+        'schedule': crontab(hour=2, minute=0),
+    },
+}

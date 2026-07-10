@@ -1,7 +1,11 @@
-Django
-Djangorestframework
-# django-sql-explorer
+--extra-index-url https://download.pytorch.org/whl/cpu
 
+torch
+torchvision
+torchaudio
+
+Django
+djangorestframework
 python-dotenv
 
 langchain-text-splitters
@@ -12,11 +16,8 @@ langchain-chroma
 langchain-huggingface
 
 chromadb
-
 sentence-transformers
-
 pypdf
-
 psycopg2-binary
 
 celery==5.5.3

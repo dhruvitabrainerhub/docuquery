@@ -10,4 +10,4 @@ class DocumentUploadSerializer(serializers.ModelSerializer):
     def validate_file(self,value):
         if not value.name.lower().endswith('.pdf'):
             raise serializers.ValidationError('Only PDF files are supported.')
-            return value
+        return value

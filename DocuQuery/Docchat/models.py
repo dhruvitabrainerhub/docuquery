@@ -5,13 +5,24 @@ import uuid
 
 # Create your models here.
 class Documents(models.Model):
+    # STATUS_CHOICES = [
+    #     ('PENDING','Pending'),
+    #     ('PROCESSING',"Processing"),
+    #     ('DONE','Done'),
+    #     ('FAILED','Failed'),
+    # ]
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Pending'
+        PROCESSING = 'PROCESSING', 'Processing'
+        DONE = 'DONE', 'Done'
+        FAILED = 'FAILED', 'Failed'
+
     title = models.CharField(max_length=255)
-
     file = models.FileField(upload_to='documents/')
-
     upload_at = models.DateTimeField(auto_now_add = True)                                       
-
     processed = models.BooleanField(default = False)
+    task_id = models.CharField(max_length =255, blank=True, null=True)
+    status = models.CharField(max_length=20, choices = Status.choices, default = Status.PENDING)
 
     def __str__(self):
         return self.title
@@ -49,7 +60,8 @@ class ChatMessage(models.Model):
 
 @receiver(post_delete, sender=Documents)
 def delete_document_vectors(sender, instance, **kwargs):
-    from .services.embeddings import vector_db
+    from .services.embeddings import get_vector_db
+    vector_db = get_vector_db()
 
     results = vector_db.get(where={'document_id': instance.id})
 

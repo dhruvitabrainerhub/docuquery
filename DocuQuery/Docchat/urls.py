@@ -3,7 +3,8 @@ from .views import(
     UploadDocumentView,
     ProcessDocumentView,
     ChatView,
-    CreateSessionView
+    CreateSessionView,
+    TaskStatusView
 )
 
 urlpatterns = [
@@ -22,5 +23,10 @@ urlpatterns = [
     path(
         'chat/<uuid:session_id>/',
         ChatView.as_view()
+    ),
+    path(
+        'documents/<int:document_id>/status/',
+        TaskStatusView.as_view(),
+        name='task-status',
     ),
 ]
