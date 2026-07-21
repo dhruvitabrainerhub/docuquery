@@ -383,55 +383,6 @@ Return {answer, sources: [{file, pages}]}
 
 ---
 
-## 🔧 Configuration Reference
-
-### ChromaDB Path
-
-```python
-# settings.py
-CHROMA_DB_PATH = str(BASE_DIR / 'chroma_db')
-```
-
-### Embedding Model
-
-```python
-# services/embeddings.py
-model_name = 'sentence-transformers/all-MiniLM-L6-v2'
-```
-
-### Chunking Parameters
-
-```python
-# services/chunker.py
-chunk_size = 500
-chunk_overlap = 100
-separators = ["\n\n", "\n", ". ", " ", ""]
-```
-
-### LLM
-
-```python
-# services/rag_pipeline.py
-model = 'openai/gpt-4o-mini'
-base_url = 'https://openrouter.ai/api/v1'
-```
-
----
-
-## 🛡️ Error Handling
-
-| Scenario | Behavior |
-|---|---|
-| Non-PDF file uploaded | `400 Bad Request` — serializer validation rejects it |
-| Document already processed | `400` — unless `force=true` is sent |
-| File missing from disk | `404` — prompts re-upload |
-| No text extracted from PDF | `400` — informs client |
-| Empty question sent | `400` — `question is required` |
-| Celery task fails | Auto-retry ×3 (60s gap), then marks document `FAILED` |
-| Document deleted | `post_delete` signal purges its ChromaDB vectors automatically |
-
----
-
 ## 📊 Monitoring
 
 ### Flower (Celery Dashboard)
