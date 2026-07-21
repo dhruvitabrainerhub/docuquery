@@ -98,35 +98,6 @@ django wirh rag project phase 1/
 
 ---
 
-## ⚙️ Environment Variables
-
-Create a `.env` file in the project root (same level as `docker-compose.yml`):
-
-```env
-# Django
-SECRET_KEY=your-secret-key-here
-DEBUG=True
-ALLOWED_HOSTS=localhost,127.0.0.1
-
-# PostgreSQL
-DB_NAME=docuquery
-DB_USER=postgres
-DB_PASSWORD=your_db_password
-DB_HOST=localhost         # Use 'db' when running via Docker
-DB_PORT=5432
-
-# LLM (OpenRouter)
-OPENROUTER_API_KEY=sk-or-...
-
-# Celery / Redis
-CELERY_BROKER_URL=redis://localhost:6379/0
-CELERY_RESULT_BACKEND=redis://localhost:6379/0
-```
-
-> **Note:** Never commit `.env` to version control. It is already listed in `.gitignore`.
-
----
-
 ## 🐳 Quick Start — Docker (Recommended)
 
 ### Prerequisites
