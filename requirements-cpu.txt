@@ -6,6 +6,7 @@ torchaudio
 
 Django
 djangorestframework
+djangorestframework-simplejwt
 python-dotenv
 
 langchain-text-splitters
@@ -23,3 +24,10 @@ psycopg2-binary
 celery==5.5.3
 redis==6.2.0
 flower==2.0.1
+
+daphne==4.1.2
+channels==4.2.2
+channels-redis==4.2.1
+whitenoise
+python-json-logger
+elasticsearch>=8.0.0,<9.0.0

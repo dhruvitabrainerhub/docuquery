@@ -1,12 +1,21 @@
-# Environment variables
+# ============================================
+# Environment & Secrets
+# ============================================
 .env
 .env.local
 .env.*.local
-
-# Firebase credentials
+.env.production
+.env.staging
+*.pem
+*.key
 service-account.json
+credentials.json
+*secret*
+*token*.json
 
+# ============================================
 # Python
+# ============================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -31,37 +40,143 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# Virtual environments
+# ============================================
+# Virtual Environments
+# ============================================
 venv/
 env/
 ENV/
 env.bak/
 venv.bak/
+.venv/
 
-# IDE
+# ============================================
+# Django Specific
+# ============================================
+db.sqlite3
+db.sqlite3-journal
+*.sqlite3
+*.sqlite
+*.db
+*.db-journal
+/media/
+/staticfiles/
+/static_root/
+/DocuQuery/media/
+/DocuQuery/staticfiles/
+/DocuQuery/static_root/
+media/documents/
+media/uploads/
+uploads/
+local_settings.py
+DocuQuery/DocuQuery/local_settings.py
+
+# ============================================
+# RAG / AI / Vector Database (LARGE FILES!)
+# ============================================
+# ChromaDB vector store
+chroma_db/
+/DocuQuery/chroma_db/
+*.chroma
+chroma/
+
+# Model weights & embeddings (very large!)
+*.bin
+*.pt
+*.pth
+*.onnx
+*.safetensors
+models/
+model_cache/
+.cache/huggingface/
+huggingface_cache/
+sentence_transformers/
+.ipynb_checkpoints/
+
+# FAISS / other vector stores
+faiss_index/
+*.faiss
+*.index
+vector_store/
+
+# ============================================
+# Celery
+# ============================================
+celerybeat-schedule
+celerybeat-schedule.db
+celerybeat.pid
+*.pid
+
+# ============================================
+# Docker
+# ============================================
+.docker/
+docker-compose.override.yml
+
+# ============================================
+# Logs & Temp Files
+# ============================================
+*.log
+logs/
+log/
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# ============================================
+# IDE & Editor
+# ============================================
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-.DS_Store
+*.sublime-project
+*.sublime-workspace
 
-# Logs
-*.log
-logs/
-
-# OS
+# ============================================
+# OS Files
+# ============================================
 .DS_Store
 Thumbs.db
+desktop.ini
+ehthumbs.db
 
-# Pytest
+# ============================================
+# Testing & Coverage
+# ============================================
 .pytest_cache/
 .coverage
 htmlcov/
+.tox/
+coverage.xml
+*.cover
+.hypothesis/
 
+# ============================================
 # Node (if used)
+# ============================================
 node_modules/
 package-lock.json
 yarn.lock
 
+# ============================================
+# Postman (optional - uncomment if sensitive)
+# ============================================
+# .postman/
 
+# ============================================
+# Logstash
+# ============================================
+logstash/data/
+logstash/*.log
+
+# ============================================
+# Miscellaneous Large Files
+# ============================================
+*.zip
+*.tar.gz
+*.rar
+*.7z
+uploads/

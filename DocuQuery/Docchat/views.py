@@ -1,239 +1,168 @@
 import re
-import os
-from collections import defaultdict
+from django.shortcuts import render
 
-from django.shortcuts import get_object_or_404
-from rest_framework import generics, status
-from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.response import Response
+# Create your views here.
 from rest_framework.views import APIView
-
+from rest_framework.response import Response
+from rest_framework import status
 from .models import Documents, ChatSession, ChatMessage
 from .serializers import DocumentUploadSerializer
+from .services.parser import extract_text
 from .services.chunker import create
 from .services.embeddings import get_vector_db
-from .services.parser import extract_text
 from .services.rag_pipeline import llm
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework import generics
 from langchain.retrievers.multi_query import MultiQueryRetriever
-from langchain_core.messages import HumanMessage, SystemMessage
-from celery.result import AsyncResult
+from collections import defaultdict
+
 from .tasks import process_document_task
+from .services.rag_service import RAGService
 
 
-class UploadDocumentView(generics.CreateAPIView): #DRF handle 
+class UploadDocumentView(generics.CreateAPIView):
     queryset = Documents.objects.all()
     serializer_class = DocumentUploadSerializer
-    parser_classes = [MultiPartParser, FormParser]  # signal handles task dispatch automatically on save()
 
-    # def perform_create(self, serializer):
-    #     document = serializer.save()
-    #     task = process_document_task.delay(document.id)
-    #     document.task_id = task.id
-    #     document.status = 'PENDING'
-    #     document.save(update_fields=['task_id','status'])
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
-    # def post(self, request, *args, **kwargs):
-    #     print(request.data)
-    #     print(request.FILES)
 
-    #     return super().post(request, *args, **kwargs)
+# class ProcessDocumentView(APIView):
+#     def post(self, request, document_id):
+#         try:
+#             document = Documents.objects.get(id=document_id, user=request.user)
+#         except Documents.DoesNotExist:
+#             return Response({'error': 'Document not found or access denied'}, status=404)
+        
+#         #change status to processing and processed to false in admin panel and save the document
+#         document.status = Documents.Status.PROCESSING
+#         document.processed = False
+#         document.save(update_fields=['status', 'processed'])
 
+#         task = process_document_task.delay(document.id)    
+
+#         document.task_id = task.id
+#         document.save(update_fields=['task_id'])
+#         return Response({
+#             'message': 'Document reprocessing started.',
+#             'document_id': document.id,
+#             'task_id': task.id,
+#             'status': document.status,
+#         })
+    
+#         vector_db = get_vector_db()
+#         old = vector_db.get(where={'document_id': document.id})
+#         if old and old.get('ids'):
+#             vector_db.delete(ids = old['ids'])
+
+#         pages = extract_text(document.file.path)
+#         all_chunks = []
+#         all_metadatas = []
+
+#         for page_data in pages:
+#             page_number = page_data['page']
+#             text = page_data['text']
+#             chunks = create(text)
+
+#             if not chunks:
+#                 continue
+
+#             for idx, chunk in enumerate(chunks):
+#                 all_chunks.append(chunk)
+#                 all_metadatas.append({
+#                     'document_id': document.id,
+#                     'user_id': str(request.user.id),
+#                     'source': document.file.name,
+#                     'page': page_number,
+#                     'chunk_id': idx
+#                 })
+
+#         if not all_chunks:
+#             document.status = Documents.Status.FAILED
+#             document.processed = False
+#             document.save(update_fields = ['status','processed'])
+#             return Response({'error': 'No text chunks created from document'}, status=400)
+
+#         get_vector_db().add_texts(texts=all_chunks, metadatas=all_metadatas)
+#         document.processed = True
+#         document.status = Documents.Status.DONE
+#         document.save(update_fields = ['status','processed'])
+#         return Response({'messages': 'document processed'})
 
 class ProcessDocumentView(APIView):
     def post(self, request, document_id):
-        vector_db = get_vector_db()
-        document = get_object_or_404(Documents, id=document_id)
+        try:
+            document = Documents.objects.get(id=document_id, user=request.user)
+        except Documents.DoesNotExist:
+            return Response({'error': 'Document not found or access denied'}, status=404)
 
-        force = request.data.get('force') in [True, 'true', 'True', '1']
-        if document.processed and not force:
-            return Response(
-                {'error': 'Already processed. Send force=true to re-process.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )    
-        if not os.path.exists(document.file.path):
-            return Response(
-                {'error': 'File not found on disk. Please re-upload the document.'},
-                status=status.HTTP_404_NOT_FOUND
-            )         
+        document.status = Documents.Status.PROCESSING
+        document.processed = False
+        document.task_id = None
+        document.save(update_fields=['status', 'processed', 'task_id'])
 
-        # delete old vectors for this document before re-embedding
-        old = vector_db.get(where={'document_id': document.id})
-        if old and old.get('ids'):
-            vector_db.delete(ids=old['ids'])                     
+        task = process_document_task.delay(document.id)
 
-        pages = extract_text(document.file.path)
-        all_chunks, all_metadatas = [], []
+        document.task_id = task.id
+        document.save(update_fields=['task_id'])
 
-        for page_data in pages:
-            chunks = create(page_data['text'])
-            if not chunks:
-                continue
-            for idx, chunk in enumerate(chunks):
-                all_chunks.append(chunk)
-                all_metadatas.append({
-                    'document_id': document.id,
-                    'source': document.file.name,
-                    'page': page_data['page'],
-                    'chunk_id': idx
-                })
-
-        if not all_chunks:
-            return Response({'error': 'No text chunks created from document.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        vector_db.add_texts(texts=all_chunks, metadatas=all_metadatas)
-        document.processed = True
-        document.status = Documents.Status.DONE
-        document.save(update_fields=['processed', 'status'])
-
-        return Response({'message': 'Document processed successfully.'})
-
+        return Response({
+            'message': 'Document reprocessing started.',
+            'document_id': document.id,
+            'task_id': task.id,
+            'status': document.status,
+        })
 
 class CreateSessionView(APIView):
     def post(self, request):
-        session = ChatSession.objects.create(title='New Chat')
-        return Response({'session_id': session.id, 'title': session.title})
+        session = ChatSession.objects.create(
+            title='New Chat',
+            user=request.user,
+        )
+        return Response({'session_id': session.id, 'title': session.title, 'user_id': request.user.id})
 
 
 class ChatView(APIView):
     def post(self, request, session_id):
-        vector_db = get_vector_db()
         question = request.data.get('question', '').strip()
+
         if not question:
-            return Response({'error': 'question is required.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'question is required'}, status=400)
 
-        session = get_object_or_404(ChatSession, id=session_id)
+        try:
+            session = ChatSession.objects.get(id=session_id, user=request.user)
+        except ChatSession.DoesNotExist:
+            return Response({'error': 'session not found or does not belong to this user'}, status=404)
 
-        history = ''.join(
-            f"{msg.role}: {msg.content}\n"
-            for msg in session.messages.order_by('created_at')
-        )
+        history_messages = ChatMessage.objects.filter(session=session).order_by('created_at')
+        history = "".join(f"{msg.role}: {msg.content}\n" for msg in history_messages)
 
-        #multiqueryretriever splits question into sub-queries
-        #so multi-topic qestions all get relevant chunks
-        base_retriever = vector_db.as_retriever(search_kwargs={'k':20})
-        retriever = MultiQueryRetriever.from_llm(
-            retriever = base_retriever,
-            llm = llm
-        )
-        docs = retriever.invoke(question)
-
-        # deduplicate: keep only 3 chunks per source file to prevent
-        # one document from dominating all retrieval slots
-        seen_content = set()
-        source_count = defaultdict(int)
-        unique_docs = []
-
-        for doc in docs:
-            source = doc.metadata.get('source')
-            content = doc.page_content
-
-            if content in seen_content:
-                continue
-            if source_count[source] >= 5:
-                continue
-
-            seen_content.add(content)
-            source_count[source] += 1
-            unique_docs.append(doc)
-       
-        context = '\n\n'.join(
-            f"[Page {doc.metadata.get('page')}]\n{doc.page_content}"
-            for doc in unique_docs
-        )
-
-        prompt = f"""You are a helpful RAG assistant. You ONLY answer from the document context provided below.
-
-        Previous conversation:
-        {history}
-
-        Document context:
-        {context}
-
-        Question: {question}
-        Rules:
-        1. Use document context first.
-        2. Use conversation history to resolve references (it, they, that event, etc.).
-        3. If the answer is not in context, say: "I couldn't find that information."
-        4. Do not mention page numbers inside the answer text itself.
-        5. Only list pages in PAGES_USED that you actually relied on.
-        6. End your response with exactly:
-        PAGES_USED:comma,separated,page,numbers
-
-        Response format:
-        Write your answer here.
-        PAGES_USED:comma,separated,page,numbers
-
-        If no answer found:
-        I couldn't find that information.
-        PAGES_USED:"""
-#         messages = [
-#             SystemMessage(content="""You are a helpful document-based assistant.
-# RULES:
-# - Answer ONLY using the document context provided.
-# - If context has relevant information, answer from it even if wording is different.
-# - If context truly has NO related information at all, respond EXACTLY: "I couldn't find that information in the provided documents."
-# - NEVER use your own knowledge to fill gaps.
-# - NEVER hallucinate."""),
-#             HumanMessage(content=f"""Document context:
-# {context}
-
-# Previous conversation:
-# {history}
-
-# Question: {question}
-
-# If answer exists in context:
-# Your answer here.
-# PAGES_USED:3,7
-
-# If answer NOT in context:
-# I couldn't find that information in the provided documents.
-# PAGES_USED:""")
-#]
-
-        answer = llm.invoke(prompt)
-        raw_answer = answer.content
-
-        match = re.search(r'PAGES_USED\s*:\s*(.*)', raw_answer, re.IGNORECASE)
-        if match:
-            answer_text = raw_answer[:match.start()].strip()
-            used_pages = [int(p.strip()) for p in match.group(1).split(',') if p.strip().isdigit()]
-        else:
-            answer_text = raw_answer.strip()
-            used_pages = []
+        res = RAGService.ask(question, history=history, user_id=str(request.user.id))
 
         ChatMessage.objects.create(session=session, role='user', content=question)
-        ChatMessage.objects.create(session=session, role='assistant', content=raw_answer)
+        ChatMessage.objects.create(session=session, role='assistant', content=res['raw'])
 
-        source_map = defaultdict(set)
-        for doc in unique_docs:
-            if doc.metadata.get('page') in used_pages:
-                source_map[doc.metadata.get('source')].add(doc.metadata.get('page'))
+        return Response({
+            'answer': res['answer'],
+            'sources': res['sources']
+        })
 
-        sources = [{'file': f, 'pages': sorted(p)} for f, p in source_map.items()]
 
-        return Response({'answer': answer_text, 'sources': sources})
-
-class TaskStatusView(APIView):
+class DocumentStatusView(APIView):
     def get(self, request, document_id):
-        document = get_object_or_404(Documents,id=document_id)
+        try:
+            doc = Documents.objects.get(id=document_id, user=request.user)
+        except Documents.DoesNotExist:
+            return Response({'error': 'Document not found'}, status=404)
 
-        if not document.task_id:
-            return Response({
-                'document_id':document.id,
-                'task_id':None,
-                'document_status':document.status,
-                'celery_status':None,
-                'processed':document.processed,
-            })
+        from celery.result import AsyncResult
+        celery_status = AsyncResult(doc.task_id).status if doc.task_id else None
 
-        task = AsyncResult(document.task_id)
-        return Response(
-            {
-                "document_id": document.id,
-                "task_id": document.task_id,
-                "document_status": document.status,
-                "celery_status": task.status,
-                "processed": document.processed,
-            }
-        )
+        return Response({
+            'document_id': doc.id,
+            'task_id': doc.task_id,
+            'document_status': doc.status,
+            'celery_status': celery_status,
+            'processed': doc.processed,
+        })
