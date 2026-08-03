@@ -136,12 +136,19 @@ class ChatView(APIView):
             return Response({'error': 'session not found or does not belong to this user'}, status=404)
 
         history_messages = ChatMessage.objects.filter(session=session).order_by('created_at')
-        history = "".join(f"{msg.role}: {msg.content}\n" for msg in history_messages)
+        clean_history = []
+        for msg in history_messages:
+            content = msg.content
+            # Strip both old PAGES_USED and new SOURCES_USED system tags from history
+            content = re.sub(r'(PAGES_USED|SOURCES_USED)\s*:.*', '', content, flags=re.IGNORECASE).strip()
+            if content:
+                clean_history.append(f"{msg.role}: {content}\n")
+        history = "".join(clean_history)
 
         res = RAGService.ask(question, history=history, user_id=str(request.user.id))
 
         ChatMessage.objects.create(session=session, role='user', content=question)
-        ChatMessage.objects.create(session=session, role='assistant', content=res['raw'])
+        ChatMessage.objects.create(session=session, role='assistant', content=res['answer'])
 
         return Response({
             'answer': res['answer'],
@@ -166,3 +173,43 @@ class DocumentStatusView(APIView):
             'celery_status': celery_status,
             'processed': doc.processed,
         })
+
+
+class ChromaDebugView(APIView):
+    """
+    Debug endpoint — shows what is actually stored in ChromaDB for this user.
+    GET /api/chroma-debug/
+    """
+    def get(self, request):
+        try:
+            vector_db = get_vector_db()
+            user_id_str = str(request.user.id)
+
+            # Fetch all entries from the collection
+            all_data = vector_db.get(include=['metadatas', 'documents'])
+            all_metadatas = all_data.get('metadatas') or []
+            all_documents = all_data.get('documents') or []
+
+            # Unique user_ids stored
+            unique_user_ids = list({str(m.get('user_id', 'N/A')) for m in all_metadatas})
+
+            # Filter only this user's chunks
+            user_chunks = []
+            for meta, doc_text in zip(all_metadatas, all_documents):
+                if str(meta.get('user_id', '')) == user_id_str:
+                    user_chunks.append({
+                        'source': meta.get('source'),
+                        'page': meta.get('page'),
+                        'user_id': meta.get('user_id'),
+                        'chunk_preview': doc_text[:120] if doc_text else '',
+                    })
+
+            return Response({
+                'logged_in_user_id': user_id_str,
+                'total_chunks_in_db': len(all_metadatas),
+                'unique_user_ids_in_db': unique_user_ids,
+                'your_chunks_count': len(user_chunks),
+                'your_chunks_sample': user_chunks[:10],
+            })
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)

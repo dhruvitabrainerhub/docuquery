@@ -1,6 +1,7 @@
 import json
 import asyncio
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
@@ -113,12 +114,19 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def _get_history(self, session):
-        return ''.join(
-            f"{msg.role}: {msg.content}\n"
-            for msg in session.messages.order_by('created_at')
-        )
+        history_messages = session.messages.order_by('created_at')
+        clean_history = []
+        for msg in history_messages:
+            content = msg.content
+            # Strip both old PAGES_USED and new SOURCES_USED system tags from history
+            content = re.sub(r'(PAGES_USED|SOURCES_USED)\s*:.*', '', content, flags=re.IGNORECASE).strip()
+            if content:
+                clean_history.append(f"{msg.role}: {content}\n")
+        return ''.join(clean_history)
 
     @database_sync_to_async
     def _save_messages(self, session, question, raw_answer):
+        # Strip both old PAGES_USED and new SOURCES_USED system tags before saving
+        clean_answer = re.sub(r'(PAGES_USED|SOURCES_USED)\s*:.*', '', raw_answer, flags=re.IGNORECASE).strip()
         ChatMessage.objects.create(session=session, role='user',      content=question)
-        ChatMessage.objects.create(session=session, role='assistant', content=raw_answer)
+        ChatMessage.objects.create(session=session, role='assistant', content=clean_answer)

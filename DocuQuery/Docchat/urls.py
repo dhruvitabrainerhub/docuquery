@@ -5,6 +5,7 @@ from .views import (
     ChatView,
     CreateSessionView,
     DocumentStatusView,
+    ChromaDebugView,
 )
 from .auth_views import RegisterView, LoginView
 from rest_framework_simplejwt.views import TokenRefreshView
@@ -18,4 +19,5 @@ urlpatterns = [
     path('documents/<int:document_id>/status/',     DocumentStatusView.as_view(),   name='document-status'),
     path('session/',                                CreateSessionView.as_view(),     name='session-create'),
     path('chat/<uuid:session_id>/',                 ChatView.as_view(),              name='chat'),
+    path('chroma-debug/',                              ChromaDebugView.as_view(),      name='chroma-debug'),
 ]
