@@ -82,25 +82,31 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self._save_messages(session, question, raw_answer)
 
     async def _stream_to_client(self, question: str, history: str, user_id: str) -> str:
-        loop   = asyncio.get_event_loop()
-        queue  = asyncio.Queue()
+        loop      = asyncio.get_event_loop()
+        queue     = asyncio.Queue()
         raw_answer = ""
 
         def _run_generator():
-            # user_id pass karo — RAGService sirf is user ke docs search karega
-            for event in RAGService.stream_answer(question, history, user_id=user_id):
-                loop.call_soon_threadsafe(queue.put_nowait, event)
-            loop.call_soon_threadsafe(queue.put_nowait, None)
+            try:
+                for event in RAGService.stream_answer(question, history, user_id=user_id):
+                    loop.call_soon_threadsafe(queue.put_nowait, event)
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)
 
+        # Fire in background — do NOT await, consume queue concurrently
         loop.run_in_executor(_executor, _run_generator)
 
         while True:
             event = await queue.get()
             if event is None:
                 break
-            await self.send(text_data=json.dumps(event))
-            if event["type"] == "complete":
-                raw_answer = event["raw"]
+            if event["type"] == "token":
+                raw_answer += event["content"]
+                await self.send(text_data=json.dumps(event))
+            elif event["type"] == "retrieving_done":
+                await self.send(text_data=json.dumps(event))
+            elif event["type"] == "complete":
+                await self.send(text_data=json.dumps(event))
 
         return raw_answer
 

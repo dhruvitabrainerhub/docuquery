@@ -31,3 +31,7 @@ channels-redis==4.2.1
 whitenoise
 python-json-logger
 elasticsearch>=8.0.0,<9.0.0
+
+# ELK logging
+python-logstash
+python-json-logger

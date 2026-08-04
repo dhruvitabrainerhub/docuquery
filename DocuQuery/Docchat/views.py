@@ -1,21 +1,12 @@
 import re
-from django.shortcuts import render
-
-# Create your views here.
+import json
+from django.http import StreamingHttpResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import generics
+from rest_framework.permissions import IsAuthenticated
 from .models import Documents, ChatSession, ChatMessage
 from .serializers import DocumentUploadSerializer
-from .services.parser import extract_text
-from .services.chunker import create
-from .services.embeddings import get_vector_db
-from .services.rag_pipeline import llm
-from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework import generics
-from langchain.retrievers.multi_query import MultiQueryRetriever
-from collections import defaultdict
-
 from .tasks import process_document_task
 from .services.rag_service import RAGService
 
@@ -27,68 +18,6 @@ class UploadDocumentView(generics.CreateAPIView):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
-
-# class ProcessDocumentView(APIView):
-#     def post(self, request, document_id):
-#         try:
-#             document = Documents.objects.get(id=document_id, user=request.user)
-#         except Documents.DoesNotExist:
-#             return Response({'error': 'Document not found or access denied'}, status=404)
-        
-#         #change status to processing and processed to false in admin panel and save the document
-#         document.status = Documents.Status.PROCESSING
-#         document.processed = False
-#         document.save(update_fields=['status', 'processed'])
-
-#         task = process_document_task.delay(document.id)    
-
-#         document.task_id = task.id
-#         document.save(update_fields=['task_id'])
-#         return Response({
-#             'message': 'Document reprocessing started.',
-#             'document_id': document.id,
-#             'task_id': task.id,
-#             'status': document.status,
-#         })
-    
-#         vector_db = get_vector_db()
-#         old = vector_db.get(where={'document_id': document.id})
-#         if old and old.get('ids'):
-#             vector_db.delete(ids = old['ids'])
-
-#         pages = extract_text(document.file.path)
-#         all_chunks = []
-#         all_metadatas = []
-
-#         for page_data in pages:
-#             page_number = page_data['page']
-#             text = page_data['text']
-#             chunks = create(text)
-
-#             if not chunks:
-#                 continue
-
-#             for idx, chunk in enumerate(chunks):
-#                 all_chunks.append(chunk)
-#                 all_metadatas.append({
-#                     'document_id': document.id,
-#                     'user_id': str(request.user.id),
-#                     'source': document.file.name,
-#                     'page': page_number,
-#                     'chunk_id': idx
-#                 })
-
-#         if not all_chunks:
-#             document.status = Documents.Status.FAILED
-#             document.processed = False
-#             document.save(update_fields = ['status','processed'])
-#             return Response({'error': 'No text chunks created from document'}, status=400)
-
-#         get_vector_db().add_texts(texts=all_chunks, metadatas=all_metadatas)
-#         document.processed = True
-#         document.status = Documents.Status.DONE
-#         document.save(update_fields = ['status','processed'])
-#         return Response({'messages': 'document processed'})
 
 class ProcessDocumentView(APIView):
     def post(self, request, document_id):
@@ -103,7 +32,6 @@ class ProcessDocumentView(APIView):
         document.save(update_fields=['status', 'processed', 'task_id'])
 
         task = process_document_task.delay(document.id)
-
         document.task_id = task.id
         document.save(update_fields=['task_id'])
 
@@ -114,46 +42,77 @@ class ProcessDocumentView(APIView):
             'status': document.status,
         })
 
+
 class CreateSessionView(APIView):
     def post(self, request):
-        session = ChatSession.objects.create(
-            title='New Chat',
-            user=request.user,
-        )
+        session = ChatSession.objects.create(title='New Chat', user=request.user)
         return Response({'session_id': session.id, 'title': session.title, 'user_id': request.user.id})
 
 
-class ChatView(APIView):
+def _get_history(session):
+    messages = ChatMessage.objects.filter(session=session).order_by('created_at')
+    clean = []
+    for msg in messages:
+        content = re.sub(r'(PAGES_USED|SOURCES_USED)\s*:.*', '', msg.content, flags=re.IGNORECASE).strip()
+        if content:
+            clean.append(f"{msg.role}: {content}\n")
+    return ''.join(clean)
+
+
+# class ChatView(APIView):
+#     """Non-streaming — returns full answer at once."""
+#     def post(self, request, session_id):
+#         question = request.data.get('question', '').strip()
+#         if not question:
+#             return Response({'error': 'question is required'}, status=400)
+#
+#         try:
+#             session = ChatSession.objects.get(id=session_id, user=request.user)
+#         except ChatSession.DoesNotExist:
+#             return Response({'error': 'session not found'}, status=404)
+#
+#         history = _get_history(session)
+#         res = RAGService.ask(question, history=history, user_id=str(request.user.id))
+#
+#         ChatMessage.objects.create(session=session, role='user', content=question)
+#         ChatMessage.objects.create(session=session, role='assistant', content=res['answer'])
+#
+#         return Response({'answer': res['answer'], 'sources': res['sources']})
+
+
+class ChatStreamView(APIView):
+    """SSE streaming — tokens pushed as Server-Sent Events."""
     def post(self, request, session_id):
         question = request.data.get('question', '').strip()
-
         if not question:
             return Response({'error': 'question is required'}, status=400)
 
         try:
             session = ChatSession.objects.get(id=session_id, user=request.user)
         except ChatSession.DoesNotExist:
-            return Response({'error': 'session not found or does not belong to this user'}, status=404)
+            return Response({'error': 'session not found'}, status=404)
 
-        history_messages = ChatMessage.objects.filter(session=session).order_by('created_at')
-        clean_history = []
-        for msg in history_messages:
-            content = msg.content
-            # Strip both old PAGES_USED and new SOURCES_USED system tags from history
-            content = re.sub(r'(PAGES_USED|SOURCES_USED)\s*:.*', '', content, flags=re.IGNORECASE).strip()
-            if content:
-                clean_history.append(f"{msg.role}: {content}\n")
-        history = "".join(clean_history)
+        history  = _get_history(session)
+        user_id  = str(request.user.id)
 
-        res = RAGService.ask(question, history=history, user_id=str(request.user.id))
+        def event_stream():
+            full_answer = ''
+            for event in RAGService.stream_answer(question, history=history, user_id=user_id):
+                if event['type'] == 'token':
+                    full_answer += event['content']
+                    yield f"data: {json.dumps(event)}\n\n"
+                elif event['type'] == 'retrieving_done':
+                    yield f"data: {json.dumps(event)}\n\n"
+                elif event['type'] == 'complete':
+                    # Save messages once answer is complete
+                    ChatMessage.objects.create(session=session, role='user', content=question)
+                    ChatMessage.objects.create(session=session, role='assistant', content=full_answer.strip())
+                    yield f"data: {json.dumps(event)}\n\n"
 
-        ChatMessage.objects.create(session=session, role='user', content=question)
-        ChatMessage.objects.create(session=session, role='assistant', content=res['answer'])
-
-        return Response({
-            'answer': res['answer'],
-            'sources': res['sources']
-        })
+        response = StreamingHttpResponse(event_stream(), content_type='text/event-stream')
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        return response
 
 
 class DocumentStatusView(APIView):
@@ -176,34 +135,20 @@ class DocumentStatusView(APIView):
 
 
 class ChromaDebugView(APIView):
-    """
-    Debug endpoint — shows what is actually stored in ChromaDB for this user.
-    GET /api/chroma-debug/
-    """
     def get(self, request):
         try:
-            vector_db = get_vector_db()
-            user_id_str = str(request.user.id)
-
-            # Fetch all entries from the collection
-            all_data = vector_db.get(include=['metadatas', 'documents'])
+            from .services.embeddings import get_vector_db
+            vector_db    = get_vector_db()
+            user_id_str  = str(request.user.id)
+            all_data     = vector_db.get(include=['metadatas', 'documents'])
             all_metadatas = all_data.get('metadatas') or []
             all_documents = all_data.get('documents') or []
-
-            # Unique user_ids stored
             unique_user_ids = list({str(m.get('user_id', 'N/A')) for m in all_metadatas})
-
-            # Filter only this user's chunks
-            user_chunks = []
-            for meta, doc_text in zip(all_metadatas, all_documents):
-                if str(meta.get('user_id', '')) == user_id_str:
-                    user_chunks.append({
-                        'source': meta.get('source'),
-                        'page': meta.get('page'),
-                        'user_id': meta.get('user_id'),
-                        'chunk_preview': doc_text[:120] if doc_text else '',
-                    })
-
+            user_chunks = [
+                {'source': m.get('source'), 'page': m.get('page'), 'chunk_preview': d[:120]}
+                for m, d in zip(all_metadatas, all_documents)
+                if str(m.get('user_id', '')) == user_id_str
+            ]
             return Response({
                 'logged_in_user_id': user_id_str,
                 'total_chunks_in_db': len(all_metadatas),

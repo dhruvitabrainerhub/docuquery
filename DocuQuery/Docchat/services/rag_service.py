@@ -128,6 +128,8 @@ SOURCES_USED:"""
     def stream_answer(question: str, history: str = "", user_id: str = None):
         """Used by WebSocket (ChatConsumer)."""
         unique_docs = RAGService._retrieve(question, user_id=user_id)
+        yield {"type": "retrieving_done"}
+
         context, doc_id_map = RAGService._build_context_and_map(unique_docs)
         prompt = RAGService._build_prompt(history, context, question)
 
@@ -135,9 +137,11 @@ SOURCES_USED:"""
         for chunk in llm.stream(prompt):
             if chunk.content:
                 full_answer += chunk.content
-                yield {"type": "token", "content": chunk.content}
 
-        raw_answer = full_answer
-        answer_text, sources = RAGService._parse(raw_answer, unique_docs, doc_id_map)
-        yield {"type": "complete", "sources": sources, "raw": raw_answer}
+        answer_text, sources = RAGService._parse(full_answer, unique_docs, doc_id_map)
+
+        for word in answer_text.split(' '):
+            yield {"type": "token", "content": word + ' '}
+
+        yield {"type": "complete", "sources": sources, "answer": answer_text}
 

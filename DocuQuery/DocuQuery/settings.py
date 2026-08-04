@@ -224,10 +224,10 @@ LOGGING = {
             'formatter': 'simple',
         },
         'logstash': {
-            'class': 'logging.handlers.SocketHandler',
+            'class': 'logstash.TCPLogstashHandler',
             'host': os.getenv('LOGSTASH_HOST', 'logstash'),
             'port': int(os.getenv('LOGSTASH_PORT', 5000)),
-            'formatter': 'json',
+            'version': 1,
         },
     },
 
