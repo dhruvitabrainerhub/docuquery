@@ -187,40 +187,6 @@ celery -A DocuQuery flower --port=5555
 
 ---
 
-## 🔑 Environment Variables
-
-```env
-SECRET_KEY=your-secret-key
-DEBUG=False
-ALLOWED_HOSTS=localhost,127.0.0.1
-
-# Database
-DB_NAME=docuquery
-DB_USER=postgres
-DB_PASSWORD=yourpassword
-DB_HOST=db
-DB_PORT=5432
-
-# Redis
-CELERY_BROKER_URL=redis://redis:6379/0
-CELERY_RESULT_BACKEND=redis://redis:6379/0
-REDIS_URL=redis://redis:6379/0
-
-# ChromaDB
-CHROMA_HOST=chromadb
-CHROMA_PORT=8000
-
-# LLM
-OPENROUTER_API_KEY=your-openrouter-key
-
-# ELK (optional)
-ELK_ENABLED=false
-LOGSTASH_HOST=logstash
-LOGSTASH_PORT=5000
-```
-
----
-
 ## 📡 API Reference
 
 Base URL: `http://localhost:8000/api/`
