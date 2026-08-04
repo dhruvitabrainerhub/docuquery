@@ -4,7 +4,6 @@ from django.http import StreamingHttpResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import generics
-from rest_framework.permissions import IsAuthenticated
 from .models import Documents, ChatSession, ChatMessage
 from .serializers import DocumentUploadSerializer
 from .tasks import process_document_task
@@ -59,27 +58,6 @@ def _get_history(session):
     return ''.join(clean)
 
 
-# class ChatView(APIView):
-#     """Non-streaming — returns full answer at once."""
-#     def post(self, request, session_id):
-#         question = request.data.get('question', '').strip()
-#         if not question:
-#             return Response({'error': 'question is required'}, status=400)
-#
-#         try:
-#             session = ChatSession.objects.get(id=session_id, user=request.user)
-#         except ChatSession.DoesNotExist:
-#             return Response({'error': 'session not found'}, status=404)
-#
-#         history = _get_history(session)
-#         res = RAGService.ask(question, history=history, user_id=str(request.user.id))
-#
-#         ChatMessage.objects.create(session=session, role='user', content=question)
-#         ChatMessage.objects.create(session=session, role='assistant', content=res['answer'])
-#
-#         return Response({'answer': res['answer'], 'sources': res['sources']})
-
-
 class ChatStreamView(APIView):
     """SSE streaming — tokens pushed as Server-Sent Events."""
     def post(self, request, session_id):
@@ -92,8 +70,8 @@ class ChatStreamView(APIView):
         except ChatSession.DoesNotExist:
             return Response({'error': 'session not found'}, status=404)
 
-        history  = _get_history(session)
-        user_id  = str(request.user.id)
+        history = _get_history(session)
+        user_id = str(request.user.id)
 
         def event_stream():
             full_answer = ''
@@ -104,7 +82,6 @@ class ChatStreamView(APIView):
                 elif event['type'] == 'retrieving_done':
                     yield f"data: {json.dumps(event)}\n\n"
                 elif event['type'] == 'complete':
-                    # Save messages once answer is complete
                     ChatMessage.objects.create(session=session, role='user', content=question)
                     ChatMessage.objects.create(session=session, role='assistant', content=full_answer.strip())
                     yield f"data: {json.dumps(event)}\n\n"
@@ -132,29 +109,3 @@ class DocumentStatusView(APIView):
             'celery_status': celery_status,
             'processed': doc.processed,
         })
-
-
-class ChromaDebugView(APIView):
-    def get(self, request):
-        try:
-            from .services.embeddings import get_vector_db
-            vector_db    = get_vector_db()
-            user_id_str  = str(request.user.id)
-            all_data     = vector_db.get(include=['metadatas', 'documents'])
-            all_metadatas = all_data.get('metadatas') or []
-            all_documents = all_data.get('documents') or []
-            unique_user_ids = list({str(m.get('user_id', 'N/A')) for m in all_metadatas})
-            user_chunks = [
-                {'source': m.get('source'), 'page': m.get('page'), 'chunk_preview': d[:120]}
-                for m, d in zip(all_metadatas, all_documents)
-                if str(m.get('user_id', '')) == user_id_str
-            ]
-            return Response({
-                'logged_in_user_id': user_id_str,
-                'total_chunks_in_db': len(all_metadatas),
-                'unique_user_ids_in_db': unique_user_ids,
-                'your_chunks_count': len(user_chunks),
-                'your_chunks_sample': user_chunks[:10],
-            })
-        except Exception as e:
-            return Response({'error': str(e)}, status=500)

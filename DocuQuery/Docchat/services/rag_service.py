@@ -114,15 +114,6 @@ SOURCES_USED:"""
         context = '\n\n'.join(lines)
         return context, doc_id_map
 
-    @staticmethod
-    def ask(question: str, history: str = "", user_id: str = None) -> dict:
-        """Used by REST API (ChatView)."""
-        unique_docs = RAGService._retrieve(question, user_id=user_id)
-        context, doc_id_map = RAGService._build_context_and_map(unique_docs)
-        prompt = RAGService._build_prompt(history, context, question)
-        raw_answer = llm.invoke(prompt).content
-        answer_text, sources = RAGService._parse(raw_answer, unique_docs, doc_id_map)
-        return {'answer': answer_text, 'sources': sources, 'raw': raw_answer}
 
     @staticmethod
     def stream_answer(question: str, history: str = "", user_id: str = None):

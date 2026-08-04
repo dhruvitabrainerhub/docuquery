@@ -1,99 +1,96 @@
 # 📄 DocuQuery — AI-Powered Document Q&A (RAG)
 
-> **Phase 1** — Django REST API · ChromaDB Vector Store · Celery Async Processing · OpenRouter LLM
+> **Full Stack RAG System** — Django REST API · WebSocket Streaming · ChromaDB · Celery · OpenRouter LLM · ELK Stack
 
-DocuQuery is a production-ready **Retrieval-Augmented Generation (RAG)** backend built with Django. Upload PDF documents, automatically embed them into a vector store, then ask natural-language questions and receive accurate answers with **source citations** — all powered by `gpt-4o-mini` via OpenRouter.
+DocuQuery is a production-ready **Retrieval-Augmented Generation (RAG)** backend built with Django. Upload PDF documents, automatically embed them into a vector store, then ask natural-language questions via **real-time WebSocket streaming** and receive accurate answers with **source citations** — all powered by `gpt-4o-mini` via OpenRouter.
 
 ---
 
 ## 🏗️ Architecture Overview
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                     Client / API Consumer                │
-└──────────────────────┬───────────────────────────────────┘
-                       │ REST API (DRF)
-┌──────────────────────▼───────────────────────────────────┐
-│                   Django Application                     │
-│                                                          │
-│   ┌─────────────┐   ┌──────────────┐   ┌─────────────┐  │
-│   │  Upload PDF │──▶│  Celery Task │──▶│  ChromaDB   │  │
-│   │   (DRF API) │   │  (Async)     │   │  Vector DB  │  │
-│   └─────────────┘   └──────────────┘   └──────┬──────┘  │
-│                                                │         │
-│   ┌─────────────────────────────────────────── ▼ ──────┐ │
-│   │  Chat API  →  MultiQueryRetriever  →  GPT-4o-mini  │ │
-│   │                                   (via OpenRouter) │ │
-│   └────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────┘
-         │                           │
-    PostgreSQL DB              Redis Broker
-   (Metadata, Chat)         (Celery Queue)
+┌─────────────────────────────────────────────────────────────┐
+│                      Client / API Consumer                  │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ REST API (DRF) + WebSocket (Channels)
+┌──────────────────────▼──────────────────────────────────────┐
+│                    Django Application                       │
+│                                                             │
+│  ┌─────────────┐   ┌──────────────┐   ┌─────────────────┐  │
+│  │  Upload PDF │──▶│  Celery Task │──▶│    ChromaDB     │  │
+│  │  (DRF API)  │   │  (Async)     │   │   Vector DB     │  │
+│  └─────────────┘   └──────────────┘   └────────┬────────┘  │
+│                                                 │           │
+│  ┌──────────────────────────────────────────────▼────────┐  │
+│  │  WebSocket → MultiQueryRetriever → GPT-4o-mini        │  │
+│  │              Streams tokens live (word-by-word)       │  │
+│  └───────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+         │                    │                    │
+    PostgreSQL DB        Redis Broker         ELK Stack
+   (Metadata, Chat)    (Celery + WS)    (Logs → Kibana)
 ```
-
-### Key Design Decisions
-
-| Component | Technology | Reason |
-|---|---|---|
-| Web Framework | Django 4.2 + DRF | Robust ORM, admin, REST support |
-| Embedding Model | `all-MiniLM-L6-v2` (HuggingFace) | Free, CPU-friendly, high quality |
-| Vector Store | ChromaDB (persistent) | Lightweight, local, no cloud needed |
-| LLM | GPT-4o-mini via OpenRouter | Low cost, OpenAI-compatible API |
-| Task Queue | Celery + Redis | Async document processing, retries |
-| Scheduler | Celery Beat | Nightly re-indexing at 02:00 UTC |
-| Database | PostgreSQL | Reliable metadata & chat history |
-| Monitoring | Flower | Real-time Celery task dashboard |
 
 ---
 
 ## 🚀 Features
 
-- **📤 PDF Upload & Auto-Processing** — Upload a PDF and Celery automatically queues embedding in the background via Django signals
-- **🧩 Smart Text Chunking** — `RecursiveCharacterTextSplitter` with 500-token chunks and 100-token overlap for context continuity
-- **🔍 Multi-Query Retrieval** — LLM generates multiple sub-queries from a single question to maximise recall
-- **💬 Contextual Chat Sessions** — Full conversation history stored per session (UUID-keyed); assistant resolves pronouns/references across turns
-- **📌 Source Citations** — Every answer returns exact source file(s) and page numbers relied upon
-- **🔄 Nightly Re-indexing** — Celery Beat re-embeds all processed documents at 02:00 UTC automatically
-- **♻️ Auto Cleanup** — Deleting a document triggers a Django signal that purges its vectors from ChromaDB
-- **📊 Admin Dashboard** — Full Django admin interface for Documents, ChatSessions, and ChatMessages
-- **🐳 Docker Ready** — One-command `docker-compose up` starts all 6 services
+- **📤 PDF Upload & Auto-Processing** — Upload a PDF → Django signal → Celery queues embedding automatically
+- **🧩 Smart Text Chunking** — `RecursiveCharacterTextSplitter` with 1000-token chunks and 200-token overlap
+- **🔍 Multi-Query Retrieval** — LLM generates 3–5 sub-queries from a single question to maximise recall
+- **⚡ Real-Time Streaming** — WebSocket streams answer tokens word-by-word as LLM generates them
+- **💬 Contextual Chat Sessions** — Full conversation history per session (UUID-keyed); pronouns resolved across turns
+- **📌 Source Citations** — Every answer returns exact source file(s) and page numbers
+- **🔐 JWT Authentication** — Register/Login with access + refresh tokens; WebSocket auth via `?token=` query param
+- **👥 Multi-User Isolation** — Each user's documents are isolated; RAG retrieval is scoped per user
+- **🔄 Nightly Re-indexing** — Celery Beat re-embeds all documents at 02:00 UTC automatically
+- **📢 WebSocket Notifications** — Celery notifies connected clients when document processing completes
+- **📊 Admin Dashboard** — Color-coded status, re-embed action, full document & chat management
+- **📈 ELK Stack Logging** — Structured logs → Logstash → Elasticsearch → Kibana dashboards
+- **🌸 Flower Dashboard** — Real-time Celery task monitoring
+- **🐳 Docker Ready** — Multi-profile Docker Compose (core / celery / elk)
 
 ---
 
 ## 📁 Project Structure
 
 ```
-django wirh rag project phase 1/
-├── Dockerfile                  # Python 3.12-slim image (CPU optimized)
-├── docker-compose.yml          # 6-service orchestration
-├── requirements.txt            # Base dependencies
-├── requirements-cpu.txt        # CPU-only PyTorch build (used in Docker)
-├── .env                        # Environment variables (not committed)
-├── .gitignore
+DocuQuery/
+├── Dockerfile
+├── docker-compose.yml          # Profiles: default, celery, elk
+├── requirements.txt
+├── requirements-cpu.txt        # CPU-only PyTorch (Docker)
+├── .env                        # Environment variables
+├── logstash/
+│   └── pipeline/
+│       └── logstash.conf       # Logstash TCP → Elasticsearch
 └── DocuQuery/                  # Django project root
     ├── manage.py
-    ├── chroma_db/              # Persistent ChromaDB vector store
-    ├── media/
-    │   └── documents/          # Uploaded PDF files
-    ├── DocuQuery/              # Django config package
-    │   ├── settings.py         # All settings (env-driven)
-    │   ├── urls.py             # Root URL conf → api/ prefix
-    │   ├── celery.py           # Celery app setup
-    │   ├── asgi.py
+    ├── DocuQuery/
+    │   ├── settings.py
+    │   ├── urls.py
+    │   ├── celery.py
+    │   ├── asgi.py             # Daphne + Django Channels
     │   └── wsgi.py
-    └── Docchat/                # Core RAG application
+    └── Docchat/
         ├── models.py           # Documents, ChatSession, ChatMessage
         ├── serializers.py      # DRF serializer + PDF validation
-        ├── views.py            # API views (Upload, Process, Chat, Status)
-        ├── urls.py             # App-level URL routing
-        ├── tasks.py            # Celery tasks (process, reindex)
-        ├── signals.py          # Auto-trigger embedding on upload
-        ├── admin.py            # Admin registrations
+        ├── views.py            # Upload, Process, Session, Status
+        ├── urls.py             # REST API routes
+        ├── consumers.py        # WebSocket ChatConsumer (streaming)
+        ├── routing.py          # WebSocket URL patterns
+        ├── tasks.py            # Celery: process_document, reindex
+        ├── signals.py          # post_save → trigger Celery task
+        ├── middleware.py       # JWT auth for WebSocket
+        ├── auth_views.py       # Register / Login / JWT
+        ├── admin.py            # Admin with color status + re-embed
+        ├── log_handler.py      # Elasticsearch logging handler
         └── services/
-            ├── parser.py       # PDF text extraction (pypdf, per-page)
+            ├── parser.py       # pypdf — extract text per page
             ├── chunker.py      # RecursiveCharacterTextSplitter
             ├── embeddings.py   # ChromaDB + HuggingFace singleton
-            └── rag_pipeline.py # ChatOpenAI via OpenRouter
+            ├── rag_pipeline.py # ChatOpenAI via OpenRouter
+            └── rag_service.py  # RAGService — retrieve + stream
 ```
 
 ---
@@ -102,83 +99,124 @@ django wirh rag project phase 1/
 
 ### Prerequisites
 - Docker & Docker Compose installed
+- OpenRouter API key
 
-### Run all services
+### 1. Clone & configure
 
 ```bash
-# 1. Clone the repo and enter the directory
-cd "django wirh rag project phase 1"
-
-# 2. Create your .env file (see above)
-cp .env.example .env   # then edit values
-
-# 3. Start everything
-docker-compose up --build
+git clone <repo-url>
+cd DocuQuery
+cp .env.example .env   # fill in values
 ```
 
-This starts **6 containers**:
+### 2. Start core services
+
+```bash
+docker compose up -d --build
+```
+
+### 3. Start with Celery (recommended)
+
+```bash
+docker compose --profile celery up -d --build
+```
+
+### 4. Start with ELK logging (optional)
+
+```bash
+docker compose --profile celery --profile elk up -d --build
+```
+
+### Containers
 
 | Container | Port | Role |
 |---|---|---|
-| `docuquery_app` | `8000` | Django REST API |
-| `docuquery_db` | `5433` | PostgreSQL 16 database |
-| `redis` | `6379` | Redis broker (internal) |
-| `celery_worker` | — | Async task processor (2 workers) |
-| `celery_beat` | — | Scheduler (nightly re-index) |
-| `flower` | `5555` | Celery monitoring dashboard |
+| `docuquery_app` | `8000` | Django + Daphne (HTTP + WebSocket) |
+| `docuquery_db` | `5433` | PostgreSQL 16 |
+| `redis` | `6379` | Redis broker |
+| `chromadb` | `8001` | ChromaDB vector store |
+| `celery_worker` | — | Async task processor |
+| `celery_beat` | — | Nightly re-index scheduler |
+| `flower` | `5555` | Celery monitoring |
+| `elasticsearch` | `9200` | Log storage |
+| `logstash` | `5000` | Log ingestion |
+| `kibana` | `5601` | Log visualization |
 
-Access:
-- **API**: http://localhost:8000/api/
-- **Admin**: http://localhost:8000/admin/
-- **Flower**: http://localhost:5555/
+### Access
+
+| Service | URL |
+|---|---|
+| API | http://localhost:8000/api/ |
+| Admin | http://localhost:8000/admin/ |
+| Flower | http://localhost:5555/ |
+| Kibana | http://localhost:5601/ |
 
 ---
 
 ## 🖥️ Local Development (Without Docker)
 
-### Prerequisites
-- Python 3.12+
-- PostgreSQL running locally
-- Redis running locally (`redis-server`)
-
-### Setup
-
 ```bash
-# 1. Create & activate a virtual environment
-python -m venv venv
-source venv/bin/activate
+# 1. Virtual environment
+python -m venv venv && source venv/bin/activate
 
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Set environment variables
-cp .env.example .env   # then fill in values
+# 3. Configure environment
+cp .env.example .env
 
-# 4. Run migrations
+# 4. Migrate & create superuser
 cd DocuQuery
 python manage.py migrate
-
-# 5. Create a superuser (for Django admin)
 python manage.py createsuperuser
 
-# 6. Start the Django server
-python manage.py runserver
+# 5. Start server
+daphne -b 0.0.0.0 -p 8000 DocuQuery.asgi:application
 ```
 
-### Start Celery (separate terminals)
-
 ```bash
-# Terminal 2 — Worker
-cd DocuQuery
+# Terminal 2 — Celery Worker
 celery -A DocuQuery worker --loglevel=info -E --concurrency=2
 
-# Terminal 3 — Beat scheduler
-cd DocuQuery
+# Terminal 3 — Celery Beat
 celery -A DocuQuery beat --loglevel=info
 
-# Terminal 4 — Flower dashboard (optional)
-cd DocuQuery
+# Terminal 4 — Flower (optional)
 celery -A DocuQuery flower --port=5555
+```
+
+---
+
+## 🔑 Environment Variables
+
+```env
+SECRET_KEY=your-secret-key
+DEBUG=False
+ALLOWED_HOSTS=localhost,127.0.0.1
+
+# Database
+DB_NAME=docuquery
+DB_USER=postgres
+DB_PASSWORD=yourpassword
+DB_HOST=db
+DB_PORT=5432
+
+# Redis
+CELERY_BROKER_URL=redis://redis:6379/0
+CELERY_RESULT_BACKEND=redis://redis:6379/0
+REDIS_URL=redis://redis:6379/0
+
+# ChromaDB
+CHROMA_HOST=chromadb
+CHROMA_PORT=8000
+
+# LLM
+OPENROUTER_API_KEY=your-openrouter-key
+
+# ELK (optional)
+ELK_ENABLED=false
+LOGSTASH_HOST=logstash
+LOGSTASH_PORT=5000
 ```
 
 ---
@@ -187,34 +225,70 @@ celery -A DocuQuery flower --port=5555
 
 Base URL: `http://localhost:8000/api/`
 
-### 1. Upload Document
+### Authentication
+
+```http
+POST /api/auth/register/
+Content-Type: application/json
+
+{ "username": "john", "password": "secret123", "email": "john@example.com" }
+```
+
+```http
+POST /api/auth/login/
+Content-Type: application/json
+
+{ "username": "john", "password": "secret123" }
+```
+
+**Response:**
+```json
+{
+  "tokens": {
+    "access": "eyJhbGc...",
+    "refresh": "eyJhbGc..."
+  }
+}
+```
+
+```http
+POST /api/auth/refresh/
+Content-Type: application/json
+
+{ "refresh": "eyJhbGc..." }
+```
+
+> All endpoints below require `Authorization: Bearer <access_token>`
+
+---
+
+### Upload Document
 
 ```http
 POST /api/upload/
 Content-Type: multipart/form-data
-```
 
-| Field | Type | Description |
-|---|---|---|
-| `title` | string | Human-readable document name |
-| `file` | file | PDF file (only `.pdf` accepted) |
+title: "Annual Report"
+file: report.pdf
+```
 
 **Response:**
 ```json
 {
   "id": 1,
-  "title": "Annual Report 2024",
+  "title": "Annual Report",
   "file": "/media/documents/report.pdf",
-  "upload_at": "2026-07-21T08:00:00Z",
-  "processed": false
+  "upload_at": "2026-08-04T10:00:00Z",
+  "processed": false,
+  "status": "PENDING"
 }
 ```
 
-> ✅ A Celery task is **automatically triggered** via Django signal on successful upload. No manual processing step needed.
+> Celery task is **automatically triggered** via Django signal — no manual step needed.
 
 ---
 
-### 2. Check Processing Status
+### Check Processing Status
 
 ```http
 GET /api/documents/{document_id}/status/
@@ -231,27 +305,19 @@ GET /api/documents/{document_id}/status/
 }
 ```
 
-Document status values: `PENDING` → `PROCESSING` → `DONE` | `FAILED`
+Status flow: `PENDING` → `PROCESSING` → `DONE` | `FAILED`
 
 ---
 
-### 3. Force Re-process Document
+### Force Re-process Document
 
 ```http
 POST /api/process/{document_id}/
-Content-Type: application/json
-
-{ "force": true }
-```
-
-**Response:**
-```json
-{ "message": "Document processed successfully." }
 ```
 
 ---
 
-### 4. Create Chat Session
+### Create Chat Session
 
 ```http
 POST /api/session/
@@ -267,69 +333,84 @@ POST /api/session/
 
 ---
 
-### 5. Chat (Ask a Question)
+## 🔌 WebSocket — Real-Time Streaming Chat
 
-```http
-POST /api/chat/{session_id}/
-Content-Type: application/json
+```
+ws://localhost:8000/ws/chat/{session_id}/?token={access_token}
 ```
 
-| Field | Type | Description |
+### Connect & Send Question
+
+```javascript
+const ws = new WebSocket(
+  `ws://localhost:8000/ws/chat/${sessionId}/?token=${token}`
+);
+
+ws.onopen = () => ws.send(JSON.stringify({ question: "What is Python?" }));
+
+ws.onmessage = (e) => {
+  const event = JSON.parse(e.data);
+
+  if (event.type === "retrieving_done") console.log("🔍 Searching docs...");
+  else if (event.type === "token")      process.stdout.write(event.content);
+  else if (event.type === "complete")   console.log("\nSources:", event.sources);
+};
+```
+
+### Event Types
+
+| Event | Fields | Description |
 |---|---|---|
-| `question` | string | Natural-language question |
-
-**Response:**
-```json
-{
-  "answer": "The revenue increased by 12% in Q3 due to new product launches...",
-  "sources": [
-    {
-      "file": "documents/annual_report.pdf",
-      "pages": [5, 12, 18]
-    }
-  ]
-}
-```
-
-> 💡 The chat endpoint uses **conversation history** from the session — follow-up questions with pronouns ("What about *it*?") are resolved correctly.
+| `connection` | `user_id`, `session_id` | Connection established |
+| `retrieving_done` | — | Document retrieval complete, tokens starting |
+| `token` | `content` | One word/token of the answer |
+| `complete` | `answer`, `sources` | Full answer + source citations |
+| `document_ready` | `document_id` | Celery finished processing a document |
+| `error` | `message` | Something went wrong |
 
 ---
 
-## 🧠 RAG Pipeline — How It Works
+## 🧠 RAG Pipeline
 
 ```
 PDF Upload
     │
     ▼
-[pypdf] Extract text per page → [{page: 1, text: "..."}, ...]
+[pypdf] Extract text per page
     │
     ▼
-[RecursiveCharacterTextSplitter] chunk_size=500, overlap=100
+[RecursiveCharacterTextSplitter] chunk_size=1000, overlap=200
     │
     ▼
 [HuggingFace all-MiniLM-L6-v2] Generate embeddings (384 dimensions)
     │
     ▼
-[ChromaDB] Store chunks + metadata {document_id, source, page, chunk_id}
+[ChromaDB] Store chunks + metadata {document_id, user_id, source, page}
     │
-    ▼  ── At query time ──────────────────────────────────────
+    ▼  ── At query time ─────────────────────────────────────────
     │
-[MultiQueryRetriever] LLM generates 3–5 sub-queries from user question
-    │
-    ▼
-[ChromaDB] Similarity search → top 20 chunks across all sub-queries
+[MultiQueryRetriever] LLM generates 3–5 sub-queries
     │
     ▼
-[Deduplication] Max 5 chunks per source file, exact-match filtering
+[ChromaDB] Similarity search → top 20 chunks
     │
     ▼
-[GPT-4o-mini via OpenRouter] Answer + PAGES_USED:n,n,n
+[User filter] Only this user's documents
     │
     ▼
-[Parse response] Extract answer text + source page references
+[Deduplication] Max 5 chunks per source
     │
     ▼
-Return {answer, sources: [{file, pages}]}
+[GPT-4o-mini via OpenRouter] Generate answer with SOURCES_USED
+    │
+    ▼
+[Stream tokens] word-by-word via WebSocket
+    │
+    ▼
+[Parse] Extract clean answer + source citations
+    │
+    ▼
+Return tokens live + {answer, sources: [{file, pages}]}
 ```
 
 ---
@@ -344,9 +425,10 @@ Return {answer, sources: [{file, pages}]}
 | `title` | CharField | Document title |
 | `file` | FileField | Stored at `media/documents/` |
 | `upload_at` | DateTimeField | Auto-set on creation |
-| `processed` | BooleanField | `True` when embedding is complete |
-| `task_id` | CharField | Celery task ID for status tracking |
+| `processed` | BooleanField | `True` when embedding complete |
 | `status` | CharField | `PENDING / PROCESSING / DONE / FAILED` |
+| `task_id` | CharField | Celery task ID |
+| `user` | FK → User | Owner |
 
 ### `ChatSession`
 
@@ -355,6 +437,7 @@ Return {answer, sources: [{file, pages}]}
 | `id` | UUIDField (PK) | Unique session identifier |
 | `title` | CharField | Session title |
 | `created_at` | DateTimeField | Auto-set on creation |
+| `user` | FK → User | Owner |
 
 ### `ChatMessage`
 
@@ -371,87 +454,63 @@ Return {answer, sources: [{file, pages}]}
 ## ⚡ Celery Tasks
 
 ### `process_document_task(document_id)`
-
-- **Triggered by**: Django `post_save` signal on new document upload
-- **Retries**: Up to 3 times with 60-second countdown on failure
-- **Steps**: Delete old vectors → Extract text → Chunk → Embed → Store in ChromaDB → Mark `DONE`
+- **Triggered by**: Django `post_save` signal on upload
+- **Retries**: 3 times with 60s countdown
+- **Steps**: Delete old vectors → Extract → Chunk → Embed → Store → Mark `DONE` → Notify WebSocket
 
 ### `reindex_all_documents()`
-
-- **Triggered by**: Celery Beat at **02:00 UTC every night**
-- **Purpose**: Re-embed all processed documents (handles model updates, schema changes)
+- **Triggered by**: Celery Beat at **02:00 UTC nightly**
+- **Purpose**: Re-embed all processed documents with 30s stagger
 
 ---
 
 ## 📊 Monitoring
 
-### Flower (Celery Dashboard)
-
-Visit **http://localhost:5555** to monitor:
-- Active / completed / failed tasks in real-time
+### Flower — http://localhost:5555
+- Active / completed / failed tasks
 - Worker status and concurrency
 - Task retry history
 
-### Django Admin
+### Django Admin — http://localhost:8000/admin/
+- Color-coded document status
+- Re-embed selected documents action
+- Browse chat sessions and messages
 
-Visit **http://localhost:8000/admin/** to:
-- Browse uploaded documents and their processing status
-- View all chat sessions and individual messages
-- Filter documents by `processed` status
-- Search documents by title
+### Kibana — http://localhost:5601
+- All Django + Celery + WebSocket logs
+- Filter by tag: `celery`, `websocket`, `rag`
+- Filter by level: `ERROR`, `WARNING`, `INFO`
 
 ---
 
-## 🔒 Security Notes
+## 🔒 Security
 
-- `SECRET_KEY` is loaded from environment — never hardcode it
-- `DEBUG=False` in production — set via `.env`
-- `ALLOWED_HOSTS` is configurable via environment
-- PDF-only validation is enforced at the serializer level
-- CSRF middleware is active (use session auth or disable for pure API usage)
+- JWT access tokens (60 min) + refresh tokens (7 days)
+- WebSocket authenticated via `?token=` query param
+- Per-user document isolation in ChromaDB
+- PDF-only file validation at serializer level
+- `SECRET_KEY` and credentials loaded from environment only
 
 ---
 
 ## 📦 Dependencies
 
-### Core
-| Package | Version | Purpose |
-|---|---|---|
-| Django | latest | Web framework |
-| djangorestframework | latest | REST API |
-| psycopg2-binary | latest | PostgreSQL adapter |
-| python-dotenv | latest | `.env` file loading |
-
-### AI / RAG
-| Package | Version | Purpose |
-|---|---|---|
-| langchain | 0.3.26 | LLM orchestration |
-| langchain-openai | latest | ChatOpenAI client |
-| langchain-chroma | latest | ChromaDB integration |
-| langchain-huggingface | latest | HuggingFace embeddings |
-| langchain-text-splitters | latest | Recursive text chunking |
-| chromadb | latest | Vector store |
-| sentence-transformers | latest | `all-MiniLM-L6-v2` model |
-| pypdf | latest | PDF text extraction |
-
-### Async / Infrastructure
-| Package | Version | Purpose |
-|---|---|---|
-| celery | 5.5.3 | Task queue |
-| redis | 6.2.0 | Message broker |
-| flower | 2.0.1 | Celery monitoring |
-
----
-
-## 🗺️ Roadmap (Phase 2+)
-
-- [ ] JWT / Token Authentication for multi-user support
-- [ ] Support for `.docx`, `.txt`, `.md` file types
-- [ ] Frontend UI (React or Next.js)
-- [ ] Streaming LLM responses via Server-Sent Events
-- [ ] Per-user document isolation
-- [ ] pgvector support as alternative to ChromaDB
-- [ ] Rate limiting and API key management
+| Package | Purpose |
+|---|---|
+| Django + DRF | Web framework + REST API |
+| django-channels + daphne | WebSocket support |
+| djangorestframework-simplejwt | JWT authentication |
+| langchain 0.3.26 | LLM orchestration |
+| langchain-openai | ChatOpenAI via OpenRouter |
+| langchain-chroma | ChromaDB integration |
+| langchain-huggingface | HuggingFace embeddings |
+| chromadb | Vector store |
+| sentence-transformers | `all-MiniLM-L6-v2` model |
+| pypdf | PDF text extraction |
+| celery 5.5.3 + redis | Async task queue |
+| flower | Celery monitoring |
+| python-logstash | Structured logging to ELK |
+| whitenoise | Static file serving |
 
 ---
 
@@ -467,12 +526,12 @@ Visit **http://localhost:8000/admin/** to:
 
 ## 📄 License
 
-This project is for educational and development purposes. See `LICENSE` for details.
+This project is for educational and development purposes.
 
 ---
 
 <div align="center">
 
-**Built with ❤️ using Django · LangChain · ChromaDB · Celery · OpenRouter**
+**Built with ❤️ using Django · LangChain · ChromaDB · Celery · Django Channels · OpenRouter · ELK Stack**
 
 </div>
