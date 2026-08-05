@@ -66,53 +66,38 @@ Rules:
 3. If the user asks about a different document or topic present in the context, answer using that document's chunks.
 4. If the answer is NOT in the context, say exactly: "I couldn't find that information."
 5. Do NOT mention document IDs or page numbers inside the answer text itself.
-6. At the end, list ONLY the Doc IDs and pages you actually used to write the answer.
+6. At the end, list ONLY the sources you actually used to write the answer.
 7. End your response with EXACTLY this line (no extra text after it):
-SOURCES_USED:D<id>:<page>,D<id>:<page>
+SOURCES_USED:filename.pdf:page,filename.pdf:page
 
 Example of correct final line:
-SOURCES_USED:D1:2,D3:10
+SOURCES_USED:report.pdf:2,annual.pdf:10
 
 If no answer found, end with:
 SOURCES_USED:"""
 
     @staticmethod
-    def _parse(raw_answer: str, unique_docs: list, doc_id_map: dict):
-        """
-        doc_id_map: {"D1": (source, page), "D2": (source, page), ...}
-        Parses SOURCES_USED:D1:2,D3:10 and returns only those exact (source, page) pairs.
-        """
+    def _parse(raw_answer: str):
         match = re.search(r'SOURCES_USED\s*:\s*(.*)', raw_answer, re.IGNORECASE)
         answer_text = raw_answer[:match.start()].strip() if match else raw_answer.strip()
 
         source_map = defaultdict(set)
         if match:
-            raw_refs = match.group(1).strip()
-            # Parse each token like D1:2 or D12:10
-            for token in re.findall(r'D(\d+):(\d+)', raw_refs, re.IGNORECASE):
-                doc_idx, page_num = int(token[0]), int(token[1])
-                key = f"D{doc_idx}"
-                if key in doc_id_map:
-                    src, _ = doc_id_map[key]
-                    filename = os.path.basename(src)   # only file name, no path
-                    source_map[filename].add(page_num)
+            for token in re.findall(r'([\w\-. ]+\.pdf):(\d+)', match.group(1), re.IGNORECASE):
+                filename, page = token[0].strip(), int(token[1])
+                source_map[filename].add(page)
 
         sources = [{'file': f, 'pages': sorted(p)} for f, p in source_map.items()]
         return answer_text, sources
 
     @staticmethod
-    def _build_context_and_map(unique_docs: list):
-        """Assign each chunk a unique Doc ID (D1, D2, ...) and build a lookup map."""
+    def _build_context(unique_docs: list) -> str:
         lines = []
-        doc_id_map = {}  # {"D1": (source, page), ...}
-        for i, doc in enumerate(unique_docs, start=1):
-            key = f"D{i}"
-            src = doc.metadata.get('source', 'Unknown')
+        for doc in unique_docs:
+            src = os.path.basename(doc.metadata.get('source', 'Unknown'))
             pg  = doc.metadata.get('page', '?')
-            doc_id_map[key] = (src, pg)
-            lines.append(f"[{key} | Document: {src} | Page {pg}]\n{doc.page_content}")
-        context = '\n\n'.join(lines)
-        return context, doc_id_map
+            lines.append(f"[Document: {src} | Page {pg}]\n{doc.page_content}")
+        return '\n\n'.join(lines)
 
 
     @staticmethod
@@ -121,15 +106,15 @@ SOURCES_USED:"""
         unique_docs = RAGService._retrieve(question, user_id=user_id)
         yield {"type": "retrieving_done"}
 
-        context, doc_id_map = RAGService._build_context_and_map(unique_docs)
-        prompt = RAGService._build_prompt(history, context, question)
+        context = RAGService._build_context(unique_docs)
+        prompt  = RAGService._build_prompt(history, context, question)
 
         full_answer = ""
         for chunk in llm.stream(prompt):
             if chunk.content:
                 full_answer += chunk.content
 
-        answer_text, sources = RAGService._parse(full_answer, unique_docs, doc_id_map)
+        answer_text, sources = RAGService._parse(full_answer)
 
         for word in answer_text.split(' '):
             yield {"type": "token", "content": word + ' '}

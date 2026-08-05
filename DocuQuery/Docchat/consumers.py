@@ -78,8 +78,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         logger.debug(f"[WS] user={self.user_id} question={question[:50]}")
         history    = await self._get_history(session)
+        is_first   = await self._is_first_message(session)
         raw_answer = await self._stream_to_client(question, history, self.user_id)
         await self._save_messages(session, question, raw_answer)
+
+        if is_first:
+            from Docchat.tasks import generate_chat_title
+            generate_chat_title.delay(str(self.session_id), question)
 
     async def _stream_to_client(self, question: str, history: str, user_id: str) -> str:
         loop      = asyncio.get_event_loop()
@@ -117,6 +122,17 @@ class ChatConsumer(AsyncWebsocketConsumer):
             "document_id": event["document_id"],
             "message": event["message"],
         }))
+
+    async def title_update(self, event):
+        """Celery title task complete hone par frontend ko notify karo."""
+        await self.send(text_data=json.dumps({
+            "type": "title_update",
+            "title": event["title"],
+        }))
+
+    @database_sync_to_async
+    def _is_first_message(self, session):
+        return not ChatMessage.objects.filter(session=session).exists()
 
     @database_sync_to_async
     def _get_history(self, session):

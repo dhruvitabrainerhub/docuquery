@@ -1,5 +1,6 @@
+import os
 import logging
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from .models import Documents
 
@@ -12,5 +13,30 @@ def trigger_processing(sender, instance, created, **kwargs):
         task = process_document_task.delay(instance.id)
         Documents.objects.filter(pk=instance.pk).update(task_id=task.id)
         logger.info(f"[Signal] Document {instance.id} queued → task_id: {task.id}")
+
+
+@receiver(post_delete, sender=Documents)
+def cleanup_on_delete(sender, instance, **kwargs):
+    """Admin panel se delete hone par: vectors + file dono delete karo."""
+    # 1. ChromaDB se vectors delete
+    try:
+        from .services.embeddings import get_vector_db
+        vector_db = get_vector_db()
+        old = vector_db.get(where={'document_id': instance.id})
+        if old and old.get('ids'):
+            vector_db.delete(ids=old['ids'])
+            logger.info(f"[Signal] Document {instance.id} → {len(old['ids'])} vectors deleted from ChromaDB")
+    except Exception as e:
+        logger.warning(f"[Signal] Document {instance.id} vector cleanup failed: {e}")
+
+    # 2. File disk se delete
+    try:
+        if instance.file and instance.file.name:
+            file_path = instance.file.path
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+                logger.info(f"[Signal] Document {instance.id} → file deleted: {file_path}")
+    except Exception as e:
+        logger.warning(f"[Signal] Document {instance.id} file deletion failed: {e}")
         # instance.task_id = task.id
         # instance.save(update_fields=['task_id'])

@@ -186,6 +186,10 @@ CELERY_BEAT_SCHEDULE = {
         'task':     'Docchat.tasks.reindex_all_documents',
         'schedule': crontab(hour=2, minute=0),
     },
+    'cleanup-missing-files': {
+        'task':     'Docchat.tasks.cleanup_missing_files',
+        'schedule': 600.0,  # har 10 minutes
+    },
 }
 
 # --------------------------------------------------------------------------

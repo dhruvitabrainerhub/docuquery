@@ -1,3 +1,4 @@
+import os
 from celery import shared_task
 from .models import Documents
 from .services.parser import extract_text
@@ -87,6 +88,73 @@ def process_document_task(self, document_id):
             async_to_sync(channel_layer.group_send)(f"session_{sid}", notify_payload)
     except Exception as e:
         logger.warning(f"[Task] Document {document_id} WebSocket notify failed (non-critical): {e}")
+
+
+@shared_task
+def generate_chat_title(session_id, first_question):
+    """Question ke pehle 6 words se title banao — no LLM, no API cost."""
+    from .models import ChatSession
+    try:
+        words = first_question.strip().split()
+        title = ' '.join(words[:6])
+        if len(words) > 6:
+            title += '...'
+        if not title:
+            return
+
+        ChatSession.objects.filter(id=session_id).update(title=title)
+        logger.info(f"[Title] Session {session_id} → '{title}'")
+
+        try:
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+            async_to_sync(get_channel_layer().group_send)(
+                f"session_{session_id}",
+                {"type": "title_update", "title": title},
+            )
+        except Exception as e:
+            logger.warning(f"[Title] WebSocket notify failed: {e}")
+
+    except Exception as e:
+        logger.warning(f"[Title] Generation failed for session {session_id}: {e}")
+
+
+@shared_task
+def cleanup_missing_files():
+    """
+    Har 10 min run hota hai.
+    Agar koi document ki file folder se delete ho gayi ho to:
+    - ChromaDB se vectors delete karo
+    - DB se document record delete karo
+    """
+    import os
+    from .services.embeddings import get_vector_db
+
+    docs = Documents.objects.all()
+    deleted_count = 0
+
+    for doc in docs:
+        try:
+            file_missing = not doc.file or not doc.file.name or not os.path.isfile(doc.file.path)
+        except Exception:
+            file_missing = True
+
+        if file_missing:
+            logger.warning(f"[Cleanup] Document {doc.id} ('{doc.title}') file missing → cleaning up")
+            try:
+                vector_db = get_vector_db()
+                old = vector_db.get(where={'document_id': doc.id})
+                if old and old.get('ids'):
+                    vector_db.delete(ids=old['ids'])
+                    logger.info(f"[Cleanup] Document {doc.id} → {len(old['ids'])} vectors deleted")
+            except Exception as e:
+                logger.warning(f"[Cleanup] Document {doc.id} vector cleanup failed: {e}")
+
+            doc.delete()  # post_delete signal file delete try karega (already missing, no-op)
+            deleted_count += 1
+            logger.info(f"[Cleanup] Document {doc.id} removed from DB")
+
+    logger.info(f"[Cleanup] Done — {deleted_count} orphaned documents removed")
 
 
 @shared_task
