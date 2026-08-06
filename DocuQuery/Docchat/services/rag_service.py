@@ -15,7 +15,7 @@ class RAGService:
     def _retrieve(question: str, user_id: str = None):
         vector_db = get_vector_db()
 
-        # Retrieve candidate chunks (k=50 for rich context across multiple files)
+        # Retrieve candidate chunks (k=20 for rich context across multiple files)
         retriever = MultiQueryRetriever.from_llm(
             retriever=vector_db.as_retriever(search_kwargs={'k': 20}),
             llm=llm
