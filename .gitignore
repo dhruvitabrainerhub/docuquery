@@ -134,6 +134,7 @@ log/
 *~
 *.sublime-project
 *.sublime-workspace
+*.yaml
 
 # ============================================
 # OS Files

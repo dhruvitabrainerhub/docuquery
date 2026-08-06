@@ -17,8 +17,8 @@ class DocchatConfig(AppConfig):
         # worker thread (e.g. Daphne's ASGI thread pool via database_sync_to_async).
         try:
             from Docchat.services.embeddings import get_embedding_model, get_vector_db
-            get_embedding_model()  # PyTorch main thread mein initialize
-            get_vector_db()        # Chroma client bhi main thread mein initialize
+            get_embedding_model()  # Initialize PyTorch in main thread
+            get_vector_db()        # Initialize Chroma client in main thread
             logger.info("[Startup] Embedding model + vector DB loaded successfully")
         except Exception as e:
             logger.warning(f"[Startup] Could not pre-load models: {e}")

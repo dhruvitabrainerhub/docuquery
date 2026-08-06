@@ -17,8 +17,8 @@ def trigger_processing(sender, instance, created, **kwargs):
 
 @receiver(post_delete, sender=Documents)
 def cleanup_on_delete(sender, instance, **kwargs):
-    """Admin panel se delete hone par: vectors + file dono delete karo."""
-    # 1. ChromaDB se vectors delete
+    """On document deletion: remove vectors from ChromaDB and delete file from disk."""
+    # 1. Delete vectors from ChromaDB
     try:
         from .services.embeddings import get_vector_db
         vector_db = get_vector_db()
@@ -29,7 +29,7 @@ def cleanup_on_delete(sender, instance, **kwargs):
     except Exception as e:
         logger.warning(f"[Signal] Document {instance.id} vector cleanup failed: {e}")
 
-    # 2. File disk se delete
+    # 2. Delete file from disk
     try:
         if instance.file and instance.file.name:
             file_path = instance.file.path
@@ -38,5 +38,3 @@ def cleanup_on_delete(sender, instance, **kwargs):
                 logger.info(f"[Signal] Document {instance.id} → file deleted: {file_path}")
     except Exception as e:
         logger.warning(f"[Signal] Document {instance.id} file deletion failed: {e}")
-        # instance.task_id = task.id
-        # instance.save(update_fields=['task_id'])

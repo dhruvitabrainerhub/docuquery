@@ -68,7 +68,7 @@ def process_document_task(self, document_id):
         raise self.retry(exc=exc, countdown=60)
         return
 
-    # notify websocket clients — outside try/except so embedding failure != notify failure
+    # Notify websocket clients — outside try/except so embedding failure does not affect notification
     try:
         from asgiref.sync import async_to_sync
         from channels.layers import get_channel_layer
@@ -79,10 +79,10 @@ def process_document_task(self, document_id):
             "document_id": document_id,
             "message": "Document processing completed.",
         }
-        # document_{id} group — legacy broadcast (koi bhi listener)
+        # Broadcast to document group
         async_to_sync(channel_layer.group_send)(f"document_{document_id}", notify_payload)
 
-        # session groups — us document se linked sessions ko notify karo
+        # Notify all active session groups
         session_ids = ChatSession.objects.values_list('id', flat=True)
         for sid in session_ids:
             async_to_sync(channel_layer.group_send)(f"session_{sid}", notify_payload)
@@ -92,7 +92,7 @@ def process_document_task(self, document_id):
 
 @shared_task
 def generate_chat_title(session_id, first_question):
-    """Question ke pehle 6 words se title banao — no LLM, no API cost."""
+    """Generate session title from first 6 words of question — no LLM, no API cost."""
     from .models import ChatSession
     try:
         words = first_question.strip().split()
@@ -122,10 +122,10 @@ def generate_chat_title(session_id, first_question):
 @shared_task
 def cleanup_missing_files():
     """
-    Har 10 min run hota hai.
-    Agar koi document ki file folder se delete ho gayi ho to:
-    - ChromaDB se vectors delete karo
-    - DB se document record delete karo
+    Runs every 10 minutes.
+    If a document's file has been deleted from disk:
+    - Remove its vectors from ChromaDB
+    - Delete the document record from DB
     """
     import os
     from .services.embeddings import get_vector_db
@@ -150,7 +150,7 @@ def cleanup_missing_files():
             except Exception as e:
                 logger.warning(f"[Cleanup] Document {doc.id} vector cleanup failed: {e}")
 
-            doc.delete()  # post_delete signal file delete try karega (already missing, no-op)
+            doc.delete()  # post_delete signal will attempt file deletion (already missing, no-op)
             deleted_count += 1
             logger.info(f"[Cleanup] Document {doc.id} removed from DB")
 

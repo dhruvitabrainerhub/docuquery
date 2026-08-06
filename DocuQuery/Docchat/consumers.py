@@ -116,7 +116,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         return raw_answer
 
     async def document_ready(self, event):
-        """Celery task embedding complete hone par yeh call karta hai."""
+        """Called by Celery task when document embedding is complete."""
         await self.send(text_data=json.dumps({
             "type": "document_ready",
             "document_id": event["document_id"],
@@ -124,7 +124,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         }))
 
     async def title_update(self, event):
-        """Celery title task complete hone par frontend ko notify karo."""
+        """Notifies frontend when Celery title task is complete."""
         await self.send(text_data=json.dumps({
             "type": "title_update",
             "title": event["title"],
