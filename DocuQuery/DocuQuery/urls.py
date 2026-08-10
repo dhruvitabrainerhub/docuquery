@@ -16,8 +16,10 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from Docchat.views import MediaDownloadView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('Docchat.urls')),
+    path('media/documents/<path:file_path>', MediaDownloadView.as_view()),
 ]
