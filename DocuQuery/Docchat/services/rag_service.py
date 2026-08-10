@@ -15,27 +15,16 @@ class RAGService:
     def _retrieve(question: str, user_id: str = None):
         vector_db = get_vector_db()
 
+        search_kwargs = {'k': 20}
+        if user_id and str(user_id) != 'default':
+            search_kwargs['filter'] = {'user_id': int(user_id)}  # ChromaDB where clause
         # Retrieve candidate chunks (k=20 for rich context across multiple files)
         retriever = MultiQueryRetriever.from_llm(
-            retriever=vector_db.as_retriever(search_kwargs={'k': 20}),
+            retriever=vector_db.as_retriever(search_kwargs=search_kwargs),
             llm=llm
         )
         docs = retriever.invoke(question)
-
-        # Robust user_id post-filtering matching both int and str representations
-        if user_id and str(user_id) != 'default':
-            user_id_str = str(user_id)
-            user_id_int = int(user_id) if user_id_str.isdigit() else None
-
-            filtered_docs = []
-            for doc in docs:
-                doc_uid = doc.metadata.get('user_id')
-                if doc_uid is None:
-                    filtered_docs.append(doc)
-                elif str(doc_uid) == user_id_str or (user_id_int is not None and doc_uid == user_id_int):
-                    filtered_docs.append(doc)
-            docs = filtered_docs
-
+        
         seen_content, source_count, unique_docs = set(), defaultdict(int), []
         for doc in docs:
             source = doc.metadata.get('source')

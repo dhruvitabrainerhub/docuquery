@@ -47,9 +47,6 @@ services:
     volumes:
       - chroma_data:/chroma/chroma
 
-    ports:
-      - "8001:8000"
-
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/8000 && printf \"GET /api/v2/heartbeat HTTP/1.0\\r\\n\\r\\n\" >&3 && timeout 3 cat <&3 | grep -q nanosecond'"]
       interval: 10s
@@ -213,17 +210,17 @@ services:
 
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=false
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=false      
+      - xpack.security.transport.ssl.enabled=false     
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD} 
       - ES_JAVA_OPTS=-Xms384m -Xmx384m
 
     volumes:
       - es_data:/usr/share/elasticsearch/data
 
-    ports:
-      - "9200:9200"
-
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf -u elastic:${ELASTIC_PASSWORD} --insecure http://localhost:9200/_cluster/health || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 10
@@ -244,6 +241,7 @@ services:
 
     environment:
       - LS_JAVA_OPTS=-Xms300m -Xmx300m
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}   
 
     depends_on:
       elasticsearch:
@@ -268,7 +266,8 @@ services:
 
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-
+      - ELASTICSEARCH_SSL_VERIFICATIONMODE=none
+      - ELASTICSEARCH_SERVICEACCOUNTTOKEN=${KIBANA_SERVICE_TOKEN}
     depends_on:
       elasticsearch:
         condition: service_healthy

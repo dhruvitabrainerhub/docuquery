@@ -102,8 +102,8 @@ vector_store/
 # ============================================
 # Celery
 # ============================================
-celerybeat-schedule
-celerybeat-schedule.db
+**/celerybeat-schedule
+**/celerybeat-schedule.db
 celerybeat.pid
 *.pid
 
@@ -181,3 +181,9 @@ logstash/*.log
 *.rar
 *.7z
 uploads/
+
+# Add these
+*.pem
+*.key
+DocuQuery/celerybeat-schedule
+DocuQuery/db.sqlite3

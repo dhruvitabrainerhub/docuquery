@@ -6,6 +6,9 @@ from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+
 
 def _get_tokens_for_user(user):
     """Generate access + refresh JWT tokens for a user."""
@@ -35,7 +38,12 @@ class RegisterView(APIView):
                 {'error': 'Username already exists.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
+        
+        try:
+            validate_password(password)
+        except ValidationError as e:
+            return Response({'error': list(e.messages)}, status = status.HTTP_400_BAD_REQUEST)
+            
         user   = User.objects.create_user(username=username, password=password, email=email)
         tokens = _get_tokens_for_user(user)
 

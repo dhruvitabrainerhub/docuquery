@@ -1,5 +1,6 @@
 import re
 import json
+import os
 from django.http import StreamingHttpResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -8,7 +9,7 @@ from .models import Documents, ChatSession, ChatMessage
 from .serializers import DocumentUploadSerializer
 from .tasks import process_document_task
 from .services.rag_service import RAGService
-
+from django.http import FileResponse, Http404
 
 class UploadDocumentView(generics.CreateAPIView):
     queryset = Documents.objects.all()
@@ -48,54 +49,6 @@ class CreateSessionView(APIView):
         return Response({'session_id': session.id, 'title': session.title, 'user_id': request.user.id})
 
 
-# def _get_history(session):
-#     messages = ChatMessage.objects.filter(session=session).order_by('created_at')
-#     clean = []
-#     for msg in messages:
-#         content = re.sub(r'(PAGES_USED|SOURCES_USED)\s*:.*', '', msg.content, flags=re.IGNORECASE).strip()
-#         if content:
-#             clean.append(f"{msg.role}: {content}\n")
-#     return ''.join(clean)
-
-
-# class ChatStreamView(APIView):
-#     """SSE streaming — tokens pushed as Server-Sent Events."""
-#     def post(self, request, session_id):
-#         question = request.data.get('question', '').strip()
-#         if not question:
-#             return Response({'error': 'question is required'}, status=400)
-
-#         try:
-#             session = ChatSession.objects.get(id=session_id, user=request.user)
-#         except ChatSession.DoesNotExist:
-#             return Response({'error': 'session not found'}, status=404)
-
-#         history  = _get_history(session)
-#         user_id  = str(request.user.id)
-#         is_first = not ChatMessage.objects.filter(session=session).exists()
-
-#         def event_stream():
-#             full_answer = ''
-#             for event in RAGService.stream_answer(question, history=history, user_id=user_id):
-#                 if event['type'] == 'token':
-#                     full_answer += event['content']
-#                     yield f"data: {json.dumps(event)}\n\n"
-#                 elif event['type'] == 'retrieving_done':
-#                     yield f"data: {json.dumps(event)}\n\n"
-#                 elif event['type'] == 'complete':
-#                     ChatMessage.objects.create(session=session, role='user', content=question)
-#                     ChatMessage.objects.create(session=session, role='assistant', content=full_answer.strip())
-#                     if is_first:
-#                         from .tasks import generate_chat_title
-#                         generate_chat_title.delay(str(session_id), question)
-#                     yield f"data: {json.dumps(event)}\n\n"
-
-#         response = StreamingHttpResponse(event_stream(), content_type='text/event-stream')
-#         response['Cache-Control'] = 'no-cache'
-#         response['X-Accel-Buffering'] = 'no'
-#         return response
-
-
 class DocumentStatusView(APIView):
     def get(self, request, document_id):
         try:
@@ -113,3 +66,19 @@ class DocumentStatusView(APIView):
             'celery_status': celery_status,
             'processed': doc.processed,
         })
+
+class MediaDownloadView(APIView):
+    def get(self, request, file_path):
+        doc = Documents.objects.filter(
+            user = request.user,
+            file = f"documents/{file_path}"
+        ).first()
+
+        if not doc:
+            raise Http404("File not found or access denied.")
+
+        full_path = doc.file.path
+        if not os.path.exists(full_path):
+            raise Http404
+        
+        return FileResponse(open(full_path, 'rb'), as_attachment=True)
