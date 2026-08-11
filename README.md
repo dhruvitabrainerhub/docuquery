@@ -13,9 +13,9 @@ Client
   │
   ├── REST API (DRF) ──► Upload PDF ──► Django Signal ──► Celery ──► ChromaDB
   │
-  └── WebSocket ──► MultiQueryRetriever ──► GPT-4o-mini ──► Stream tokens
-                          │
-                    PostgreSQL · Redis · ELK Stack
+  └── WebSocket (ws://) ──► MultiQueryRetriever ──► GPT-4o-mini ──► Stream tokens
+                                    │
+                          PostgreSQL · Redis · ELK Stack
 ```
 
 ---
@@ -79,9 +79,9 @@ DocuQuery/
 # Clone & configure
 git clone <repo-url>
 cd DocuQuery
-cp .env.example .env   # fill in values
+cp ".env.example" .env   # fill in values
 
-# Core services
+# Core services only
 docker compose up -d --build
 
 # With Celery (recommended)
